@@ -366,10 +366,10 @@
       <details><summary>Canais<span class="conta" data-conta="canais"></span></summary><div class="controles" data-grupo="canais">
         <p class="nota">Curva de cada canal, como os “Gamma” do JL Camera Tool. Abaixo de 1 escurece o canal, acima de 1 clareia.</p>
       </div></details>
-      <!-- escondido desde a revisao de 26/10/2026: nas duas cameras o grao e da posicao, no Montar o sistema, e este
-           valor nao e usado; ele continua indo no .flt (o do filtro de partida), para o JL Camera Tool -->
-      <details hidden><summary>Granulado<span class="conta" data-conta="grao"></span></summary><div class="controles" data-grupo="grao">
-        <p class="nota" id="nota-grao">Fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. Na ALT 2.1 o grão é da posição da roda (todas menos o F2) e este valor não é usado, por isso a prévia não o mostra.</p>
+      <!-- escondido na revisao de 26/10/2026 e de volta em 27/10/2026, a pedido. Nas duas cameras o grao e da posicao,
+           no Montar o sistema, e este valor nao e usado; ele vai no .flt, para o JL Camera Tool -->
+      <details><summary>Granulado<span class="conta" data-conta="grao"></span></summary><div class="controles" data-grupo="grao">
+        <p class="nota" id="nota-grao">A prévia mostra o grão como o JL Camera Tool. Ele fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. A ALT 2.1 não usa este valor: nela o grão é o da posição da roda (todas menos o F2).</p>
       </div></details>
       <div class="rodape-ajustes"><button type="button" class="leve" id="desfazer-filtro" disabled title="Volta o filtro ao passo anterior (Ctrl+Z)">Desfazer</button><button type="button" class="leve" id="zerar">Zerar todos os ajustes</button></div>
     </div>
@@ -446,7 +446,7 @@ if (UM) {
   document.title = "Criador de filtros da 1.0";
   document.querySelector("h1").textContent = "Criador de filtros da 1.0";
   document.querySelectorAll('a[href="sistema.html"]').forEach((a) => { a.href = MONTADOR; });
-  $("nota-grao").innerHTML = "Fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. Na 1.0 o grão liga ou desliga em cada posição, no Montar o sistema, e este valor não é usado, por isso a prévia não o mostra.";
+  $("nota-grao").innerHTML = "A prévia mostra o grão como o JL Camera Tool. Ele fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. A 1.0 não usa este valor: nela o grão liga ou desliga em cada posição, no Montar o sistema.";
 }
 // No site (so o Criar filtros, publicado no GitHub: _scripts/montar_site_criador.js poe window.X10_SITE e tira os
 // filtros de fabrica): sem o "Usar na roda" e sem link para o Montar o sistema, que so existe no programa ALT. No alto,
@@ -458,6 +458,12 @@ if (SO_CRIADOR) {
   const trocar = document.createElement("a");
   trocar.href = "index.html"; trocar.className = "trocar-camera"; trocar.textContent = "Trocar de câmera";
   document.querySelector("h1").after(trocar);
+}
+// No Mac os atalhos sao com a tecla Command: os textos dizem ⌘V e ⌘Z no lugar de Ctrl+V e Ctrl+Z (o Ctrl+Z da
+// pagina ja aceita o Command; o ⌘V, no programa, vem do menu Editar que a ponte poe no Mac)
+if (/Mac/.test(navigator.platform || navigator.userAgent || "")) {
+  document.querySelectorAll(".vazio p").forEach((p) => { if (p.textContent.includes("Ctrl+V")) p.textContent = p.textContent.replace("Ctrl+V", "⌘V"); });
+  $("desfazer-filtro").title = $("desfazer-filtro").title.replace("Ctrl+Z", "⌘Z");
 }
 // matriz do sensor da camera (x1024): o .flt descreve o "visual" sobre ela; a camera grava .flt . sensor. A da 1.0 e a
 // da 2.1 com 1 ponto de diferenca em 4 numeros (a da 1.0 em 0x3AE84 do firmware dela, a da 2.1 no F3 de fabrica)
@@ -1285,7 +1291,7 @@ const LINEAR = Array.from({ length: 256 }, (_, v) => {            // desfaz a ga
   return lo + (v - GAMA_F[lo]) / (GAMA_F[hi] - GAMA_F[lo]);
 });
 // A conta da camera para um canal de uma cor (luz linear 0..1023): matriz gravada, gama da camera e as 8 retas.
-// O grao do .flt fica de fora: na ALT 2.1 o grao e o da posicao da roda, nao o do arquivo.
+// O grao fica de fora daqui: o do Granulado entra depois, so na previa (graoDaFoto).
 function canal(L, lut, c, r, g, b) {
   let v = L[3 * c] * r + L[3 * c + 1] * g + L[3 * c + 2] * b;
   v = v < 0 ? 0 : v > 1023 ? 1023 : v;
@@ -1325,8 +1331,20 @@ function definirFoto(fonte) {                                       // fonte: Im
   tela.width = Math.round(fonte.width * escala); tela.height = Math.round(fonte.height * escala);
   ctx.drawImage(fonte, 0, 0, tela.width, tela.height);
   foto = ctx.getImageData(0, 0, tela.width, tela.height);
-  ruidoFoto = null;
+  ruidoFoto = null; graoFoto = null;
   agendar();
+}
+// ---------- o Granulado na previa (desde 27/10/2026) ----------
+// A conta do JL Camera Tool (applyGrainLevelNoise): cada ponto ganha o mesmo valor nos 3 canais, sorteado entre -grao e
+// +grao. Aqui o sorteio fica o mesmo para a mesma foto, para o grao nao piscar a cada controle mexido. Na camera vale o
+// grao da posicao (Montar o sistema), nao este valor.
+let graoFoto = null;
+function graoDaFoto() {
+  if (graoFoto) return graoFoto;
+  const z = new Float32Array(foto.width * foto.height);
+  let s = 54321;
+  for (let p = 0; p < z.length; p++) { s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff; z[p] = (s / 0x40000000) - 1; }
+  return (graoFoto = z);
 }
 // ---------- pouca luz: o ruido do sensor, simulado ----------
 // Cada canal do sensor ganha um ruido aleatorio (sempre o mesmo para a mesma foto, para comparar), de desvio
@@ -1460,6 +1478,7 @@ function desenhar() {
     ctx.putImageData(saida, 0, 0);
     return;
   }
+  const grao = ver === "camera" ? A.grao : 0, gz = grao ? graoDaFoto() : null;   // so "Com o filtro" tem grao
   for (let i = 0, p = 0; i < d.length; i += 4, p += 3) {
     if (ver === "original" && !pouca) { o[i] = d[i]; o[i + 1] = d[i + 1]; o[i + 2] = d[i + 2]; o[i + 3] = 255; continue; }
     let r = LINEAR[d[i]], g = LINEAR[d[i + 1]], b = LINEAR[d[i + 2]];
@@ -1467,7 +1486,8 @@ function desenhar() {
       const s = RUIDO_BASE + RUIDO_RAIZ * Math.sqrt(Math.max(0, Y709[0] * r + Y709[1] * g + Y709[2] * b));
       r += s * z[p]; g += s * z[p + 1]; b += s * z[p + 2];
     }
-    o[i] = canal(M, T, 0, r, g, b); o[i + 1] = canal(M, T, 1, r, g, b); o[i + 2] = canal(M, T, 2, r, g, b);
+    const n = grao ? grao * gz[i >> 2] : 0;
+    o[i] = canal(M, T, 0, r, g, b) + n; o[i + 1] = canal(M, T, 1, r, g, b) + n; o[i + 2] = canal(M, T, 2, r, g, b) + n;
     o[i + 3] = 255;
   }
   ctx.putImageData(saida, 0, 0);
