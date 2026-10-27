@@ -1,0 +1,2370 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criador de filtros da 2.1</title>
+<link rel="stylesheet" href="fonte.css">
+<style>
+  /* Tema preto: o mesmo preto da tela OLED da camera; o azul-gelo e a cor que ela desenha. A cor fica so na foto. */
+  :root {
+    color-scheme: dark;
+    --fundo: #000000; --painel: #0A0C0D; --campo: #14181A; --campo-forte: #1E2427; --linha: #262C30;
+    --tinta: #EDF2F4; --suave: #98A4AA; --tela: #8BE6FF; --tela-tinta: #00161D; --alerta: #FFA477; --certo: #86E0AC;
+    --barra: 64px;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--fundo); }
+  body { margin: 0; color: var(--tinta); font: 16px/1.5 "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif; }
+  a { color: var(--tela); }
+
+  /* barra de cima: titulo, nome e baixar */
+  .barra { position: sticky; top: 0; z-index: 5; min-height: var(--barra); display: flex; flex-wrap: wrap; align-items: center;
+    gap: 8px 16px; padding: 10px 20px; background: var(--fundo); border-bottom: 1px solid var(--linha); }
+  h1 { font-size: 19px; line-height: 1.2; margin: 0; font-weight: 700; }
+  .baixar { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .baixar input { width: 220px; text-transform: uppercase; }
+  #status-baixar { flex-basis: 100%; margin: 0; font-size: 14px; }
+  /* so no site: volta para a escolha da camera */
+  .trocar-camera { font-size: 14px; color: var(--suave); }
+  .trocar-camera:hover, .trocar-camera:focus-visible { color: var(--tela); }
+  #status-baixar:empty { display: none; }
+  /* usar na roda: um botao por posicao, com o nome que ela tem hoje no Montar o sistema */
+  .para-roda { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 2px 0 4px; }
+  .para-roda[hidden] { display: none; }
+  .para-roda > span { font-weight: 600; font-size: 15px; }
+  .checagem { flex-basis: 100%; margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: 14px; color: var(--suave); }
+  .checagem li::before { content: "✓ "; color: var(--tinta); }
+  .checagem li.aviso { color: var(--alerta); }
+  .checagem li.aviso::before { content: "! "; color: var(--alerta); }
+  #aviso-nome-roda { flex-basis: 100%; margin: 0; font-size: 14px; }
+  .posicoes { display: flex; flex-wrap: wrap; gap: 6px; }
+  .posicoes button { display: grid; gap: 1px; min-width: 66px; padding: 6px 10px; text-align: left; line-height: 1.2; }
+  .posicoes button span { font-size: 12px; font-weight: 400; color: var(--suave); min-height: 1.2em; }
+
+  /* botoes e campos */
+  button, .botao { font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; border-radius: 9px; padding: 8px 14px;
+    border: 1px solid var(--tela); background: var(--tela); color: var(--tela-tinta); }
+  button.leve, .botao.leve { background: transparent; color: var(--tinta); border-color: var(--linha); }
+  button.leve:hover, .botao.leve:hover { border-color: var(--suave); }
+  button:focus-visible, .botao:focus-within, input:focus-visible, select:focus-visible, summary:focus-visible, canvas:focus-visible {
+    outline: 2px solid var(--tela); outline-offset: 2px; }
+  input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  select, input[type=text] { font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--linha); border-radius: 9px;
+    background: var(--campo); color: var(--tinta); }
+  select { flex: 1; min-width: 0; }
+  .linha-botoes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .status { margin: 8px 0 0; color: var(--suave); font-size: 14px; }
+  .status.erro, .aviso { color: var(--alerta); }
+  .status.ok { color: var(--certo); }
+
+  /* area: previa grande a esquerda, ajustes a direita */
+  .area { display: grid; grid-template-columns: minmax(0, 1fr) 440px; }
+  /* tela larga (ultrawide, tela cheia): a foto ja e limitada pela altura, entao a pagina para de crescer na largura que
+     uma foto 16:9 ainda usa nessa altura, mais o painel, e fica centrada, com o cabecalho alinhado a ela */
+  :root { --largura: max(980px, calc((100vh - 230px) * 1.78 + 490px)); }
+  .barra, .area { max-width: var(--largura); margin-inline: auto; }
+  .previa { position: sticky; top: var(--topo-previa, var(--barra)); align-self: start; height: calc(100vh - var(--topo-previa, var(--barra)));
+    display: flex; flex-direction: column;
+    gap: 12px; padding: 20px 24px; }
+  /* a foto ocupa o espaco que sobra e cabe nele inteira (object-fit), em qualquer tamanho de janela: posicionada por
+     cima da area, ela nao empurra a faixa de botoes para fora da tela quando a janela e muito larga */
+  .tela { flex: 1; min-height: 0; display: grid; place-items: center; position: relative; }
+  .tela canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; cursor: pointer;
+    touch-action: none; user-select: none; -webkit-user-select: none; }
+  .faixa { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+  .segmentos { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--linha); border-radius: 11px; background: var(--painel); }
+  .segmentos button, .segmentos .botao { border: 0; border-radius: 8px; padding: 6px 12px; background: transparent; color: var(--suave); }
+  .segmentos button:hover, .segmentos .botao:hover { color: var(--tinta); }
+  .segmentos [aria-pressed=true] { background: var(--campo-forte); color: var(--tinta); }
+  /* sem foto: um convite para escolher, arrastar ou colar uma foto */
+  .vazio { width: 100%; height: 100%; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 12px;
+    padding: 24px; text-align: center; border: 2px dashed var(--linha); border-radius: 14px; color: var(--suave); }
+  .vazio strong { color: var(--tinta); font-size: 20px; line-height: 1.25; }
+  .vazio p { margin: 0; max-width: 34ch; }
+  .previa.arrastando .vazio, .previa.arrastando .tela canvas { outline: 2px dashed var(--tela); outline-offset: 4px; }
+  .sem-foto .tela canvas, .sem-foto .faixa, .sem-foto .dica { display: none; }
+  .com-foto .vazio { display: none; }
+  /* as 5 fotos de teste: uma miniatura por foto na tela de inicio, e a lista "Foto" na faixa de baixo */
+  .fotos-teste { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(560px, 100%); }
+  .fotos-teste button { display: grid; gap: 4px; width: 104px; padding: 4px; font-size: 13px; background: transparent; color: var(--tinta);
+    border-color: var(--linha); }
+  .fotos-teste button:hover { border-color: var(--suave); }
+  .fotos-teste img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 5px; }
+  .escolha-foto { display: inline-flex; gap: 8px; align-items: center; }
+  .escolha-foto select { flex: 0 1 auto; }
+  .escolha-foto[hidden] { display: none; }
+  .dica { margin: 0; color: var(--suave); font-size: 14px; }
+  .camera { margin: 0; font-size: 14px; color: var(--suave); }
+  .camera.aviso, .camera .aviso { color: var(--alerta); }
+  .camera p { margin: 0; }
+  /* os limites que estragam a foto: aviso em laranja, nota (o que os de fabrica tambem fazem) no cinza */
+  .camera ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+  .camera .curto { display: none; }
+  .estouro { margin: 8px 0 0; font-size: 14px; color: var(--suave); display: grid; gap: 6px; }
+  .estouro p { margin: 0; }
+  .estouro .aviso { color: var(--alerta); }
+  .estouro .ok { color: var(--tinta); }
+  .estouro progress { width: 100%; }
+  .m-claro { color: #FF5A5A; } .m-escuro { color: #5AA0FF; } .m-chapa { color: #FFD60A; }
+
+  .painel { background: var(--painel); border-left: 1px solid var(--linha); padding: 18px 20px 48px; min-width: 0; }
+  h2 { font-size: 15px; font-weight: 700; margin: 0 0 8px; color: var(--suave); }
+  .comeco { padding-bottom: 18px; border-bottom: 1px solid var(--linha); }
+
+  /* grupos de ajuste: um aberto por vez */
+  details { border-bottom: 1px solid var(--linha); }
+  summary { cursor: pointer; font-weight: 700; font-size: 16px; padding: 14px 2px; list-style: none; display: flex; align-items: center; gap: 10px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; margin-left: auto; color: var(--suave); font-weight: 400; font-size: 20px; line-height: 1; }
+  details[open] summary::after { content: "–"; }
+  .conta { font-size: 13px; font-weight: 600; color: var(--tela); }
+  .controles { padding: 0 0 18px; display: grid; gap: 12px; }
+  .controle { display: grid; grid-template-columns: 118px minmax(0, 1fr) 46px 26px; gap: 10px; align-items: center; }
+  .controle label { font-weight: 600; font-size: 14px; }
+  /* o numero ao lado da barra e um campo: parece texto ate passar o mouse ou clicar, e ai se digita */
+  .controle .valor { width: 100%; min-width: 0; padding: 3px 4px; border: 1px solid transparent; border-radius: 6px; background: transparent;
+    text-align: right; font: inherit; font-variant-numeric: tabular-nums; color: var(--suave); font-size: 14px; }
+  .controle .valor:hover { border-color: var(--linha); }
+  .controle .valor:focus { border-color: var(--tela); background: var(--campo); color: var(--tinta); outline: none; }
+  .controle.mexido .valor { color: var(--tela); font-weight: 700; }
+  .controle input[type=range] { width: 100%; accent-color: var(--tela); }
+  .zerar-um { visibility: hidden; padding: 0; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--linha);
+    background: transparent; color: var(--suave); font-size: 14px; line-height: 1; }
+  .zerar-um:hover { color: var(--tinta); border-color: var(--suave); }
+  .controle.mexido .zerar-um { visibility: visible; }
+  .controle.desligado { opacity: .35; pointer-events: none; }
+  .nota { color: var(--suave); font-size: 14px; margin: 0; }
+  .marca { display: flex; gap: 10px; align-items: center; font-weight: 600; font-size: 15px; }
+  .marca input { width: 18px; height: 18px; accent-color: var(--tela); }
+  .fichas { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+  /* a amostra tem a largura da coluna, nao a do nome ("Vermelho" e "Magenta" sao mais largos que ela e esticavam o
+     quadrado); a cor escolhida ganha um anel no quadrado, sem moldura em volta do nome, que pode passar um pouco da coluna */
+  .fichas button.ficha { min-width: 0; padding: 4px 4px 2px; border: 0; border-radius: 9px; background: transparent; color: var(--suave);
+    font-size: 11px; font-weight: 600; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; justify-items: center; }
+  .fichas button.ficha[aria-pressed=true] { color: var(--tinta); }
+  .fichas button.ficha[aria-pressed=true] .amostra { outline: 2px solid var(--tinta); outline-offset: 2px; }
+  .fichas button.ficha[aria-pressed=false]:hover .amostra { outline: 1px solid var(--suave); outline-offset: 2px; }
+  .ficha .amostra { width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden; display: grid; grid-template-rows: 1fr 1fr; }
+  .ficha .rotulo { white-space: nowrap; }
+  .ficha[data-mexida=true] .rotulo { color: var(--tela); }
+  .cor-escolhida { font-weight: 700; margin: 2px 0 0; }
+  #por-cor.desligado .so-com-cor { opacity: .35; pointer-events: none; }
+  .rodape-ajustes { margin: 18px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .rodape-ajustes button:disabled { opacity: 0.45; cursor: default; }
+  /* intensidade do filtro: fora dos grupos, sempre a vista */
+  .geral { padding: 16px 0 14px; border-bottom: 1px solid var(--linha); }
+  .geral .controles { padding: 0 0 6px; }
+  /* trocar canais: o select ocupa o lugar do controle deslizante, do valor e do botao */
+  .controle.troca select { grid-column: span 3; min-width: 0; }
+  /* viragem: um botao por tom, com o degrade sombras -> luzes */
+  .tons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .tons button { display: grid; gap: 5px; padding: 6px; font-size: 13px; background: transparent; color: var(--suave); border-color: var(--linha); }
+  .tons button[aria-pressed=true] { border-color: var(--tinta); background: var(--campo); color: var(--tinta); }
+  .tons .degrade { height: 14px; border-radius: 4px; }
+  .duas-cores { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .duas-cores[hidden] { display: none; }
+  .duas-cores label { display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 14px; }
+  .cores-ir input[type=color] { width: 100%; }
+  input[type=color] { width: 44px; height: 30px; padding: 2px; border: 1px solid var(--linha); border-radius: 6px; background: var(--campo); cursor: pointer; }
+  .pe { margin: 26px 0 0; }
+
+  /* abas do painel: Ajustes (os controles), Infravermelho (pelas cores) e Aerochrome (pela matriz do AERORED) */
+  .abas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; margin: 0 0 18px;
+    border: 1px solid var(--linha); border-radius: 11px; background: var(--fundo); }
+  .abas button { border: 0; border-radius: 8px; padding: 7px 6px; background: transparent; color: var(--suave); }
+  .abas button:hover { color: var(--tinta); }
+  .abas [aria-selected=true] { background: var(--campo-forte); color: var(--tinta); }
+  [role=tabpanel][hidden] { display: none; }
+  .titulo-aba { margin: 20px 0 10px; font-size: 16px; }
+  /* os dois jeitos da aba Infravermelho, um cartao cada */
+  .cartao { border: 1px solid var(--linha); border-radius: 12px; padding: 14px 16px 16px; margin: 14px 0 0; }
+  .titulo-cartao { margin: 0 0 6px; font-size: 18px; }
+  /* estilos: uma fila por familia, um botao por estilo, com as cores da folhagem, do ceu e do vermelho */
+  .estilos { display: grid; gap: 12px; }
+  .estilos .fila { display: grid; gap: 6px; }
+  .estilos .fila > span { font-size: 13px; font-weight: 600; color: var(--suave); }
+  .estilos .tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .estilos button { display: grid; gap: 3px; padding: 6px 8px 7px; text-align: left; font-size: 14px; background: transparent;
+    color: var(--tinta); border-color: var(--linha); }
+  .estilos button:hover { border-color: var(--suave); }
+  .estilos button small { font-weight: 400; font-size: 12px; color: var(--suave); }
+  .estilos button[aria-pressed=true] { border-color: var(--tinta); background: var(--campo); }
+  .tiras { display: grid; grid-template-columns: repeat(3, 1fr); height: 14px; border-radius: 4px; overflow: hidden; margin-bottom: 3px; }
+  /* cores: o que a coisa e na foto, a cor que voce quer e o que a camera faz, lado a lado */
+  .cores-ir { display: grid; gap: 8px; }
+  .cores-ir > div { display: grid; grid-template-columns: minmax(64px, 1fr) 54px 54px 54px minmax(76px, 1fr); gap: 8px; align-items: center; }
+  .cores-ir .cabeca { font-size: 12px; color: var(--suave); white-space: nowrap; }
+  .cores-ir .cabeca span { text-align: center; }
+  .cores-ir .rotulo { font-weight: 600; font-size: 14px; }
+  .amostra-cor { height: 30px; border-radius: 6px; border: 1px solid var(--linha); }
+  .amostra-cor.vazia { border-style: dashed; }
+  .cores-ir .perto { font-size: 13px; color: var(--suave); }
+  .ruido-ir { margin-top: 16px; }
+  .fazer { margin-top: 16px; }
+  .andamento { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+  .andamento progress { flex: 1; height: 10px; accent-color: var(--tela); }
+  .andamento progress[hidden], .andamento button[hidden] { display: none; }
+
+  @media (max-width: 980px) {
+    .barra { position: static; }
+    .area { grid-template-columns: 1fr; }
+    .previa { top: 0; height: auto; z-index: 3; background: var(--fundo); padding: 10px 16px 12px; border-bottom: 1px solid var(--linha); }
+    .tela canvas { position: static; height: auto; max-height: 32vh; }   /* a previa aqui tem a altura da foto */
+    .vazio { min-height: 0; padding: 16px; gap: 10px; }
+    .vazio strong { font-size: 17px; }
+    .fotos-teste button { width: 62px; font-size: 11px; padding: 3px; }
+    .segmentos[aria-label=Comparar] { display: none; }   /* no celular: tocar e segurar a foto */
+    .dica, .camera { font-size: 13px; }
+    /* no celular os avisos saem curtos e lado a lado, para a previa presa no alto nao tomar a tela */
+    .camera .longo { display: none; }
+    .camera .curto { display: inline; }
+    .camera ul { display: flex; flex-wrap: wrap; gap: 0 14px; padding-left: 0; list-style: none; margin-top: 2px; }
+    .camera li::before { content: "• "; }
+    .painel { border-left: 0; padding: 16px 16px 40px; }
+  }
+  @media (max-width: 560px) {
+    .barra { padding: 10px 16px; }
+    .baixar { margin-left: 0; width: 100%; }
+    .baixar input { flex: 1; width: auto; min-width: 0; }
+    .faixa { gap: 8px; }
+    .segmentos button, .segmentos .botao { padding: 6px 9px; font-size: 14px; }
+    .fichas { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .controle { grid-template-columns: minmax(0, 1fr) 46px 26px; }
+    .controle label { grid-column: 1 / -1; }
+    .controle.troca select { grid-column: 1 / -1; }
+  }
+</style>
+<link rel="icon" href="icone.png">
+<script>window.X10_SITE = true;</script>
+</head>
+<body>
+<header class="barra">
+  <h1>Criador de filtros da 2.1</h1>
+  <div class="baixar">
+    <input type="text" id="nome" maxlength="20" aria-label="Nome do filtro" placeholder="Nome do filtro" autocomplete="off">
+    <button type="button" class="leve" id="usar-na-roda" aria-expanded="false" aria-controls="para-roda">Usar na roda</button>
+    <button type="button" id="baixar">Baixar .flt</button>
+  </div>
+  <div class="para-roda" id="para-roda" hidden>
+    <ul class="checagem" id="checagem-roda" aria-label="Antes de pôr na roda"></ul>
+    <span>Pôr este filtro na posição</span>
+    <div class="posicoes" id="posicoes-roda" role="group" aria-label="Posição da roda"></div>
+    <label class="marca"><input type="checkbox" id="com-nome" checked> Trocar também o nome na tela para <strong id="nome-na-roda"></strong></label>
+    <p class="aviso" id="aviso-nome-roda" role="status" hidden></p>
+  </div>
+  <p class="status" id="status-baixar" role="status"></p>
+</header>
+<main class="area">
+  <section class="previa sem-foto" id="previa" aria-label="Prévia">
+    <div class="tela">
+      <div class="vazio">
+        <strong>Envie uma foto para testar o filtro</strong>
+        <p>Escolha uma foto do computador, arraste para cá ou cole com Ctrl+V. A foto fica só neste computador.</p>
+        <div class="linha-botoes">
+          <label class="botao">Escolher foto<input type="file" class="abrir-foto" accept="image/*"></label>
+          <button type="button" class="leve" id="usar-cartela">Usar a cartela de cores</button>
+        </div>
+        <p>Ou use uma foto de teste:</p>
+        <div class="fotos-teste" id="fotos-teste" role="group" aria-label="Fotos de teste"></div>
+      </div>
+      <canvas id="tela" width="720" height="540" tabindex="0" aria-label="Prévia do filtro. Segure para ver sem o filtro."></canvas>
+    </div>
+    <div class="faixa">
+      <div class="segmentos" role="group" aria-label="Comparar">
+        <button type="button" data-ver="camera" aria-pressed="true">Com o filtro</button>
+        <button type="button" data-ver="original" aria-pressed="false">Sem filtro</button>
+        <button type="button" data-ver="estouro" aria-pressed="false" title="Vermelho: estoura no claro. Azul: engole o escuro. Amarelo: a cor chapa.">Onde estoura</button>
+      </div>
+      <div class="segmentos" role="group" aria-label="Luz">
+        <button type="button" data-luz="dia" aria-pressed="true">Dia</button>
+        <button type="button" data-luz="pouca" aria-pressed="false" title="Simula o ruído do sensor com pouca luz">Pouca luz</button>
+      </div>
+      <div class="escolha-foto">
+        <select id="qual-foto" aria-label="Foto da prévia">
+          <option value="sua" hidden>Sua foto</option>
+          <optgroup label="Fotos de teste" id="grupo-teste"></optgroup>
+          <option value="cartela">Cartela de cores</option>
+        </select>
+        <label class="botao" id="rotulo-trocar">Escolher foto<input type="file" class="abrir-foto" accept="image/*"></label>
+      </div>
+    </div>
+    <p class="dica">Segure a foto para ver como ela é sem o filtro.</p>
+    <p class="dica" id="dica-estouro" hidden>Onde estoura: <b class="m-claro">vermelho</b> estoura no claro, <b class="m-escuro">azul</b> engole o escuro, <b class="m-chapa">amarelo</b> a cor chapa (fica lisa). O resto fica cinza.</p>
+    <p class="dica" id="credito-foto" hidden></p>
+    <p class="dica" id="dica-luz" hidden>Pouca luz: o ruído do sensor é simulado (aproximado, antes da redução de ruído da câmera). Segure a foto para ver o mesmo ruído sem o filtro.</p>
+    <div class="camera" id="camera" role="status"></div>
+    <div class="estouro" id="estouro" hidden>
+      <p id="estouro-texto" role="status"></p>
+      <progress id="estouro-progresso" hidden aria-label="Procurando"></progress>
+      <div class="linha-botoes">
+        <button type="button" id="estouro-tirar" hidden>Tirar estouro</button>
+        <button type="button" class="leve" id="estouro-parar" hidden>Parar</button>
+        <button type="button" class="leve" id="estouro-voltar" hidden>Voltar ao filtro de antes</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="painel" aria-label="Ajustes">
+    <div class="abas" id="abas" role="tablist" aria-label="Jeito de fazer o filtro">
+      <button type="button" role="tab" data-aba="ajustes" id="tab-ajustes" aria-controls="aba-ajustes" aria-selected="true">Ajustes</button>
+      <button type="button" role="tab" data-aba="ir" id="tab-ir" aria-controls="aba-ir" aria-selected="false" tabindex="-1">Infravermelho</button>
+    </div>
+    <div id="aba-ajustes" role="tabpanel" aria-labelledby="tab-ajustes">
+    <div class="comeco">
+      <h2>Começar de</h2>
+      <div class="linha-botoes">
+        <select id="pronto" aria-label="Filtro de partida"></select>
+        <label class="botao leve">Abrir .flt<input type="file" id="abrir" accept=".flt"></label>
+      </div>
+      <p class="status" id="status-base" role="status"></p>
+    </div>
+    <div class="geral">
+      <div class="controles" data-grupo="geral"></div>
+      <p class="nota">Mistura o filtro inteiro com a foto sem filtro: abaixar tira ruído e cor chapada, mantendo o jeito do filtro.</p>
+    </div>
+
+    <div id="ajustes">
+      <p class="nota dica-controles">Clique no número de um controle para digitar o valor. Arraste a barra com Shift para ir devagar.</p>
+      <details id="grupo-site" hidden><summary>Ajustes do JL Camera Tool<span class="conta" data-conta="site"></span></summary><div class="controles" data-grupo="site">
+        <p class="nota">Este filtro foi feito no site do fabricante. Estes são os controles dele, com as contas do site, do jeito que vieram no arquivo. Os outros grupos mexem por cima. O granulado do site está no grupo Granulado.</p>
+      </div></details>
+      <details open><summary>Tom<span class="conta" data-conta="tom"></span></summary><div class="controles" data-grupo="tom"></div></details>
+      <details><summary>Cor<span class="conta" data-conta="cor"></span></summary><div class="controles" data-grupo="cor">
+        <label class="marca"><input type="checkbox" id="pb"> Preto e branco (mistura dos canais)</label>
+        <div class="controle troca" id="linha-troca"><label for="troca">Trocar canais</label><select id="troca">
+          <option value="rgb">Não trocar</option>
+          <option value="rg">Vermelho ↔ verde (folhas vermelhas, infravermelho falso)</option>
+          <option value="gb">Verde ↔ azul</option>
+          <option value="rb">Vermelho ↔ azul</option>
+          <option value="girar1">Girar: vermelho vira verde, verde vira azul</option>
+          <option value="girar2">Girar: vermelho vira azul, verde vira vermelho</option>
+        </select></div>
+      </div></details>
+      <details id="grupo-viragem"><summary>Viragem do P&amp;B<span class="conta" data-conta="viragem"></span></summary><div class="controles" data-grupo="viragem">
+        <p class="nota">Pinta o preto e branco: as sombras ganham uma cor e as luzes outra, como numa cópia virada. Quase não mexe no ruído. Escolher um tom liga o “Preto e branco”.</p>
+        <p class="nota aviso" id="viragem-desligada" hidden>A viragem só vale com a foto em preto e branco: ligue o “Preto e branco” no grupo Cor.</p>
+        <div class="tons" id="tons" role="group" aria-label="Tom da viragem"></div>
+        <div class="duas-cores" id="duas-cores" hidden>
+          <label>Sombras <input type="color" id="cor-sombras" value="#12343b"></label>
+          <label>Luzes <input type="color" id="cor-luzes" value="#f5e6c8"></label>
+        </div>
+      </div></details>
+      <details><summary>Cor por cor<span class="conta" data-conta="porcor"></span></summary><div class="controles" id="por-cor">
+        <p class="nota">A câmera tem só uma matriz 3×3 para a cor, então ela não separa as cores como o Lightroom. Cada cor arrasta as vizinhas, e a cor oposta muda junto (vermelho e água, amarelo e azul, verde e magenta). A cor que você mexe chega ao que você pediu, o mais perto que a câmera deixa, e as outras mudam o mínimo a partir de onde já estão. As 2 últimas cores mexidas ficam presas onde você deixou (nome em azul); as outras mostram onde estão de verdade, e mexer numa delas parte daí. Em cada quadrado, a metade de cima é a cor com o filtro sem este ajuste, e a de baixo é o que a câmera faz com ele.</p>
+        <p class="nota aviso" id="sem-cor" hidden>Este filtro é preto e branco: não há cor para ajustar.</p>
+        <div class="so-com-cor">
+          <div class="fichas" role="group" aria-label="Escolha a cor" id="fichas"></div>
+          <p class="cor-escolhida" id="cor-escolhida"></p>
+          <div class="controle"><label for="c-corH">Matiz</label><input type="range" id="c-corH" min="-90" max="90" step="1" value="0" title="Dois cliques voltam a cor ao padrão e a soltam. Arraste com Shift para ir devagar."><input type="text" class="valor" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="Matiz: valor"></div>
+          <div class="controle"><label for="c-corS">Saturação</label><input type="range" id="c-corS" min="-100" max="100" step="1" value="0" title="Dois cliques voltam a cor ao padrão e a soltam. Arraste com Shift para ir devagar."><input type="text" class="valor" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="Saturação: valor"></div>
+          <p class="nota" id="resultado-cor" role="status"></p>
+          <div class="linha-botoes"><button type="button" class="leve" id="zerar-cores">Voltar todas as cores</button></div>
+        </div>
+      </div></details>
+      <details><summary>Sombras e luzes<span class="conta" data-conta="split"></span></summary><div class="controles" data-grupo="split"></div></details>
+      <details><summary>Canais<span class="conta" data-conta="canais"></span></summary><div class="controles" data-grupo="canais">
+        <p class="nota">Curva de cada canal, como os “Gamma” do JL Camera Tool. Abaixo de 1 escurece o canal, acima de 1 clareia.</p>
+      </div></details>
+      <!-- escondido desde a revisao de 26/10/2026: nas duas cameras o grao e da posicao, no Montar o sistema, e este
+           valor nao e usado; ele continua indo no .flt (o do filtro de partida), para o JL Camera Tool -->
+      <details hidden><summary>Granulado<span class="conta" data-conta="grao"></span></summary><div class="controles" data-grupo="grao">
+        <p class="nota" id="nota-grao">Fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. Na ALT 2.1 o grão é da posição da roda (todas menos o F2) e este valor não é usado, por isso a prévia não o mostra.</p>
+      </div></details>
+      <div class="rodape-ajustes"><button type="button" class="leve" id="desfazer-filtro" disabled title="Volta o filtro ao passo anterior (Ctrl+Z)">Desfazer</button><button type="button" class="leve" id="zerar">Zerar todos os ajustes</button></div>
+    </div>
+    <p class="nota pe">A prévia mostra o que a câmera faz de verdade. Para pôr o filtro na roda, use “Usar na roda”, no alto, ou abra o .flt numa posição do <a href="sistema.html">Montar o sistema</a>.</p>
+    </div>
+
+    <!-- Infravermelho e Aerochrome numa aba so (revisao de 26/10/2026): as duas faziam infravermelho colorido, e nao
+         dava para saber qual usar. Os ids de antes ficam (aba-aero, ir-*, aero-*): os scripts e a receita continuam. -->
+    <div id="aba-ir" role="tabpanel" aria-labelledby="tab-ir" hidden>
+      <p class="nota">Infravermelho colorido, como os filmes Aerochrome, de dois jeitos. O filtro fica nos Ajustes, com os controles nos lugares, para continuar mexendo.</p>
+      <section class="cartao" id="aba-aero" aria-labelledby="titulo-aero">
+        <h2 class="titulo-cartao" id="titulo-aero">Partindo do AERORED</h2>
+      <p class="nota">Do jeito dos primeiros AERORED: o AERORED da roda como partida, e a folhagem e o céu mexidos à mão. O vermelho, a pele e os cinzas ficam como no AERORED. É na hora.</p>
+      <h3 class="titulo-aba">Versão</h3>
+      <div class="estilos" id="aero-estilos" role="group" aria-label="Versão"></div>
+      <h3 class="titulo-aba">Folhagem</h3>
+      <div class="controles" id="aero-folha"></div>
+      <h3 class="titulo-aba">Céu</h3>
+      <div class="controles" id="aero-ceu"></div>
+      <p class="nota">Estes controles mexem na Cor por cor do filtro. A câmera tem uma matriz só para a cor: puxar a folhagem e o céu arrasta um pouco as outras cores, e a página segura o vermelho, a pele e os cinzas onde o AERORED deixa.</p>
+      <p class="status" id="aero-status" role="status"></p>
+      <div class="linha-botoes">
+        <button type="button" id="aero-continuar" hidden>Continuar nos Ajustes</button>
+        <button type="button" class="leve" id="aero-desfazer" hidden>Voltar ao filtro de antes</button>
+      </div>
+      </section>
+      <section class="cartao" id="cartao-cores" aria-labelledby="titulo-ir-cores">
+        <h2 class="titulo-cartao" id="titulo-ir-cores">Pelas cores que você escolher</h2>
+      <div id="ir-controles">
+        <p class="nota">Você escolhe a cor que cada coisa ganha, e a página procura o filtro que chega mais perto dela, dentro do que a câmera faz.</p>
+        <h3 class="titulo-aba">Estilo</h3>
+        <div class="estilos" id="ir-estilos" role="group" aria-label="Estilo"></div>
+        <h3 class="titulo-aba">Cores</h3>
+        <div class="cores-ir" id="ir-cores">
+          <div class="cabeca" aria-hidden="true"><span></span><span>Na foto</span><span>Você quer</span><span>Na câmera</span><span></span></div>
+        </div>
+        <div class="controle ruido-ir"><label for="c-irRuido">Ruído máximo</label><input type="range" id="c-irRuido" min="1.2" max="2.7" step="0.1" value="2.2" title="Arraste com Shift para ir devagar."><input type="text" class="valor" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="Ruído máximo: valor"><span></span></div>
+        <p class="nota">Mais alto deixa as cores chegarem mais perto, mas a foto fica mais granulada em pouca luz. Bom: até 2,2×.</p>
+        <div class="linha-botoes fazer"><button type="button" id="ir-fazer">Fazer o filtro</button></div>
+        <p class="nota">Começa de um filtro novo: o que estiver nos Ajustes é trocado (dá para voltar). Leva alguns segundos.</p>
+      </div>
+      <div class="andamento">
+        <progress id="ir-progresso" max="100" value="0" hidden aria-label="Andamento"></progress>
+        <button type="button" class="leve" id="ir-parar" hidden>Parar</button>
+      </div>
+      <p class="status" id="ir-status" role="status"></p>
+      <div class="linha-botoes">
+        <button type="button" id="ir-continuar" hidden>Continuar nos Ajustes</button>
+        <button type="button" class="leve" id="ir-desfazer" hidden>Voltar ao filtro de antes</button>
+      </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script src="nucleo.js"></script>
+<script src="filtros_biblioteca.js"></script>
+<script src="foto.js"></script>
+<script src="salvar.js"></script>
+<script src="amostras_estouro.js"></script>
+<script src="fotos_teste.js"></script>
+<script src="fonte_nomes.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+// Qual camera: criar.html e a 2.1; criar.html?camera=1.0 e a 1.0. As duas tem a mesma matriz do sensor (diferenca de 1
+// ponto em 1024), entao o filtro e a previa sao os mesmos. Muda para onde o filtro vai: as posicoes (8 ou 6), os nomes
+// delas e o Montar o sistema de cada uma, cada camera com as suas chaves no localStorage e no sessionStorage.
+const UM = new URLSearchParams(location.search).get("camera") === "1.0";
+const daCamera = (k) => (UM ? `${k}-1.0` : k);
+const MONTADOR = UM ? "sistema10.html" : "sistema.html";
+const POSICOES_RODA = UM ? 6 : 8;
+if (UM) {
+  document.title = "Criador de filtros da 1.0";
+  document.querySelector("h1").textContent = "Criador de filtros da 1.0";
+  document.querySelectorAll('a[href="sistema.html"]').forEach((a) => { a.href = MONTADOR; });
+  $("nota-grao").innerHTML = "Fica gravado no <code>.flt</code> e vale no JL Camera Tool e no firmware de teste do fabricante. Na 1.0 o grão liga ou desliga em cada posição, no Montar o sistema, e este valor não é usado, por isso a prévia não o mostra.";
+}
+// No site (so o Criar filtros, publicado no GitHub: _scripts/montar_site_criador.js poe window.X10_SITE e tira os
+// filtros de fabrica): sem o "Usar na roda" e sem link para o Montar o sistema, que so existe no programa ALT. No alto,
+// "Trocar de câmera" volta para a escolha da camera (o index.html do site).
+const SO_CRIADOR = window.X10_SITE === true;
+if (SO_CRIADOR) {
+  $("usar-na-roda").hidden = true;
+  document.querySelector(".nota.pe").textContent = "A prévia mostra o que a câmera faz de verdade. O .flt entra na câmera pelo Montar o sistema, no programa ALT.";
+  const trocar = document.createElement("a");
+  trocar.href = "index.html"; trocar.className = "trocar-camera"; trocar.textContent = "Trocar de câmera";
+  document.querySelector("h1").after(trocar);
+}
+// matriz do sensor da camera (x1024): o .flt descreve o "visual" sobre ela; a camera grava .flt . sensor. A da 1.0 e a
+// da 2.1 com 1 ponto de diferenca em 4 numeros (a da 1.0 em 0x3AE84 do firmware dela, a da 2.1 no F3 de fabrica)
+const SENSOR = UM ? [1838, -1167, 353, -370, 1671, -277, 43, -706, 1686] : [1838, -1168, 353, -371, 1671, -278, 43, -707, 1686];
+const Y709 = [0.2126, 0.7152, 0.0722];
+const IDENT = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const mul3 = (p, q) => Array.from({ length: 9 }, (_, k) => {
+  const i = Math.floor(k / 3), j = k % 3;
+  return p[3 * i] * q[j] + p[3 * i + 1] * q[3 + j] + p[3 * i + 2] * q[6 + j];
+});
+function inv3(m) {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g, det = a * A + b * B + c * C;
+  return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((v) => v / det);
+}
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+// ---------- controles ----------
+const CONTROLES = {
+  tom: [
+    ["brilho", "Brilho", -100, 100, 1, 0], ["contraste", "Contraste", -100, 100, 1, 0],
+    ["pretos", "Pretos", -50, 50, 1, 0], ["brancos", "Brancos", -50, 50, 1, 0], ["meios", "Meios-tons", 0.3, 3, 0.01, 1],
+  ],
+  cor: [
+    ["temp", "Temperatura", -100, 100, 1, 0], ["tinta", "Tinta", -100, 100, 1, 0],
+    ["sat", "Saturação", 0, 2, 0.01, 1], ["matiz", "Matiz", -180, 180, 1, 0],
+    ["mixR", "Peso do vermelho", -1, 2, 0.01, 0.3], ["mixG", "Peso do verde", -1, 2, 0.01, 0.59], ["mixB", "Peso do azul", -1, 2, 0.01, 0.11],
+  ],
+  split: [
+    ["sombrasF", "Sombras: força", 0, 100, 1, 0], ["sombrasH", "Sombras: cor", 0, 360, 1, 210],
+    ["luzesF", "Luzes: força", 0, 100, 1, 0], ["luzesH", "Luzes: cor", 0, 360, 1, 40], ["equilibrio", "Equilíbrio", -100, 100, 1, 0],
+  ],
+  canais: [["gamaR", "Gama vermelho", 0.3, 3, 0.01, 1], ["gamaG", "Gama verde", 0.3, 3, 0.01, 1], ["gamaB", "Gama azul", 0.3, 3, 0.01, 1]],
+  grao: [["grao", "Granulado", 0, 64, 1, 0]],
+  geral: [["intensidade", "Intensidade do filtro", 0, 100, 1, 100]],
+  viragem: [["forcaVir", "Força", 0, 100, 1, 100]],
+  // os do JL Camera Tool, com as faixas do site (JL_CAM_ColorControls.js:62); so aparecem com um filtro feito nele
+  site: [["sBrilho", "Brilho", -255, 255, 1, 0], ["sContraste", "Contraste", 0, 2, 0.01, 1], ["sSat", "Saturação", 0, 4, 0.01, 1],
+    ["sMatiz", "Matiz", 0, 360, 1, 0], ["sGamaR", "Gamma vermelho", 0.1, 2, 0.01, 1], ["sGamaG", "Gamma verde", 0.1, 2, 0.01, 1],
+    ["sGamaB", "Gamma azul", 0.1, 2, 0.01, 1]],
+};
+const SITE = { sBrilho: "brightness", sContraste: "contrast", sSat: "saturation", sMatiz: "hue", sGamaR: "gammaR", sGamaG: "gammaG", sGamaB: "gammaB" };
+// O numero ao lado de cada barra tambem se digita (pedido de 24/10/2026): Enter ou sair do campo aplica, com virgula ou
+// ponto, o sinal de menos e o % ou o grau do numero; fora da faixa vai para a ponta da barra, e o passo e o dela. Esc
+// desiste. Aplicar e o mesmo que mexer na barra (o evento "input" dela), entao vale para a Cor por cor tambem.
+function numeroDigitavel(r, campo, mostrar) {
+  const aplicar = () => {
+    const t = campo.value.trim().replace(/[\s%°+×]/g, "").replace(/[−–]/g, "-").replace(",", ".");
+    const n = t === "" ? NaN : Number(t);
+    if (!Number.isFinite(n)) { mostrar(); return; }
+    r.value = Math.min(Number(r.max), Math.max(Number(r.min), n));
+    r.dispatchEvent(new Event("input"));
+    mostrar();
+  };
+  campo.addEventListener("change", aplicar);
+  campo.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); aplicar(); campo.select(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); mostrar(); campo.blur(); }
+  });
+  campo.addEventListener("focus", () => campo.select());
+}
+// Arrastar a barra com Shift anda 10 vezes mais devagar (o ajuste fino); soltar o Shift no meio volta ao normal. Para
+// isso o arrasto com o mouse e feito aqui, e nao pelo navegador: clicar na trilha leva o polegar ate la, pegar o
+// polegar nao o faz pular, e a conta guarda as fracoes para o passo da barra andar aos poucos. No toque fica o do
+// navegador (sem Shift). O polegar do Chrome tem 16 px.
+const POLEGAR = 16;
+function barraComShift(r) {
+  let arrasto = null;
+  const faixa = () => Number(r.max) - Number(r.min);
+  const util = () => { const b = r.getBoundingClientRect(); return { esq: b.left + POLEGAR / 2, larg: Math.max(1, b.width - POLEGAR) }; };
+  const por = (v) => {
+    const antes = r.value;
+    r.value = Math.min(Number(r.max), Math.max(Number(r.min), v));
+    if (r.value !== antes) r.dispatchEvent(new Event("input"));
+  };
+  r.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType === "touch" || ev.button !== 0) return;
+    ev.preventDefault(); r.focus();
+    try { r.setPointerCapture(ev.pointerId); } catch (e) { /* segue sem captura */ }
+    const g = util(), atual = Number(r.value), polegar = g.esq + (atual - Number(r.min)) / faixa() * g.larg;
+    arrasto = { id: ev.pointerId, x: ev.clientX, v: atual };
+    if (!ev.shiftKey && Math.abs(ev.clientX - polegar) > POLEGAR / 2 + 2) {   // clicou na trilha
+      arrasto.v = Number(r.min) + (ev.clientX - g.esq) / g.larg * faixa();
+      por(arrasto.v);
+    }
+  });
+  r.addEventListener("pointermove", (ev) => {
+    if (!arrasto || ev.pointerId !== arrasto.id) return;
+    arrasto.v += (ev.clientX - arrasto.x) / util().larg * faixa() * (ev.shiftKey ? 0.1 : 1);
+    arrasto.v = Math.min(Number(r.max), Math.max(Number(r.min), arrasto.v));
+    arrasto.x = ev.clientX;
+    por(arrasto.v);
+  });
+  const soltar = (ev) => { if (arrasto && ev.pointerId === arrasto.id) arrasto = null; };
+  r.addEventListener("pointerup", soltar);
+  r.addEventListener("pointercancel", soltar);
+}
+const AJUDA = { temp: "− frio · + quente", tinta: "− verde · + magenta", pretos: "− corta · + levanta", brancos: "− apaga · + estoura",
+  meios: "− escurece · + clareia os meios-tons (1 = sem mudança)", gamaR: "− escurece · + clareia o vermelho (1 = sem mudança)",
+  gamaG: "− escurece · + clareia o verde (1 = sem mudança)", gamaB: "− escurece · + clareia o azul (1 = sem mudança)",
+  sombrasH: "A cor só vale com a força acima de 0", luzesH: "A cor só vale com a força acima de 0",
+  ...Object.fromEntries(Object.keys(SITE).map((k) => [k, "Dois cliques voltam ao valor do arquivo"])) };
+const SUFIXO = { intensidade: "%", forcaVir: "%" };
+const A = {};
+const entradas = {};
+for (const [grupo, lista] of Object.entries(CONTROLES)) {
+  const caixa = document.querySelector(`[data-grupo=${grupo}]`);
+  for (const [chave, rotulo, min, max, passo, padrao] of lista) {
+    A[chave] = padrao;
+    const linha = document.createElement("div");
+    linha.className = "controle";
+    linha.dataset.chave = chave;
+    const marca = grupo !== "site" && padrao !== min ? ` list="marca-${chave}"` : "";
+    linha.innerHTML = `<label for="c-${chave}">${rotulo}</label><input type="range" id="c-${chave}" min="${min}" max="${max}" step="${passo}" value="${padrao}"${marca} title="${AJUDA[chave] || "Dois cliques voltam ao padrão"}. Arraste com Shift para ir devagar."><input type="text" class="valor" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${rotulo}: valor"><button type="button" class="zerar-um" title="Voltar ao padrão" aria-label="Voltar ${rotulo.toLowerCase()} ao padrão">↺</button>${marca ? `<datalist id="marca-${chave}"><option value="${padrao}"></option></datalist>` : ""}`;
+    const r = linha.querySelector("input[type=range]"), o = linha.querySelector(".valor");
+    const mostrar = () => { o.value = (passo < 1 ? Number(r.value).toFixed(2).replace(".", ",") : r.value) + (SUFIXO[chave] || ""); };
+    const voltar = () => { const p = entradas[chave].padrao; r.value = p; A[chave] = p; mostrar(); agendar(); };
+    r.addEventListener("input", () => { A[chave] = Number(r.value); mostrar(); agendar(); });
+    r.addEventListener("dblclick", voltar);
+    linha.querySelector(".zerar-um").addEventListener("click", voltar);
+    numeroDigitavel(r, o, mostrar); barraComShift(r);
+    entradas[chave] = { r, mostrar, padrao, linha, grupo };
+    mostrar();
+    caixa.appendChild(linha);
+  }
+}
+A.pb = false;
+$("pb").addEventListener("change", () => { A.pb = $("pb").checked; ligarMistura(); agendar(); });
+// trocar canais: fica no fim do grupo Cor, depois dos controles deslizantes
+document.querySelector("[data-grupo=cor]").append($("linha-troca"));
+A.troca = "rgb";
+$("troca").addEventListener("change", () => { A.troca = $("troca").value; agendar(); });
+// o que mudou: cada controle fora do padrao fica marcado, e cada grupo diz quantos mudou
+function marcarMudados() {
+  const conta = { site: 0, geral: 0, tom: 0, cor: (A.pb ? 1 : 0) + (A.troca !== "rgb" ? 1 : 0), viragem: A.virar !== "nenhum" ? 1 : 0, split: 0, canais: 0, grao: 0, porcor: 0 };
+  for (const e of Object.values(entradas)) {
+    const k = e.r.id.slice(2), mudou = Math.abs(A[k] - e.padrao) > 1e-9 && !e.linha.classList.contains("desligado");
+    e.linha.classList.toggle("mexido", mudou);
+    if (mudou) conta[e.grupo]++;
+  }
+  conta.porcor = A.pb ? 0 : A.porCor.mexidas.length;
+  for (const [g, n] of Object.entries(conta)) {
+    const el = document.querySelector(`[data-conta=${g}]`);
+    if (el) el.textContent = n ? (n === 1 ? "1 mudado" : `${n} mudados`) : "";
+  }
+}
+// um grupo aberto por vez
+document.querySelectorAll("#ajustes details").forEach((d, _, todos) => d.addEventListener("toggle", () => {
+  if (d.open) todos.forEach((o) => { if (o !== d) o.open = false; });
+}));
+function ligarMistura() {                  // o controle que nao vale sai da tela (revisao de 26/10/2026; antes ficava apagado)
+  const desligar = (k, sim) => { const l = document.querySelector(`[data-chave=${k}]`); l.classList.toggle("desligado", sim); l.inert = sim; l.hidden = sim; };
+  for (const k of ["mixR", "mixG", "mixB"]) desligar(k, !A.pb);
+  for (const k of ["sat", "matiz"]) desligar(k, A.pb);
+}
+// valor que nao e numero (receita mexida a mao) fica no padrao; fora da faixa, vai para a ponta do controle
+function noControle(e, v) {
+  const n = v == null || v === "" ? NaN : Number(v);
+  return Number.isFinite(n) ? Math.min(Number(e.r.max), Math.max(Number(e.r.min), n)) : e.padrao;
+}
+function definirControles(valores) {
+  for (const [k, e] of Object.entries(entradas)) { A[k] = noControle(e, valores[k]); e.r.value = A[k]; e.mostrar(); }
+  A.pb = false; $("pb").checked = false; ligarMistura();
+  A.troca = "rgb"; $("troca").value = "rgb";
+  A.virar = "nenhum"; A.sombraCor = DUAS_CORES[0]; A.luzCor = DUAS_CORES[1]; mostrarTons();
+  zerarCores();
+}
+
+// ---------- viragem do P&B ----------
+// Cada tom e um degrade das sombras para as luzes. Numa foto em P&B (as 3 linhas da matriz iguais) os 3 canais chegam
+// iguais nas curvas, entao cada nivel pode virar um ponto do degrade so com as curvas: a matriz nao muda e o ruido tambem nao.
+const TONS = [["nenhum", "Nenhum", ["#000000", "#ffffff"]], ["sepia", "Sépia", ["#2a180c", "#fbefd9"]], ["selenio", "Selênio", ["#24161d", "#f2ede9"]],
+  ["cianotipo", "Cianótipo", ["#0a2342", "#e4eef5"]], ["platina", "Platina", ["#1b1815", "#f3ebdd"]], ["duas", "Duas cores", null]];
+const DUAS_CORES = ["#12343b", "#f5e6c8"];                // petroleo -> creme, ate voce escolher
+A.virar = "nenhum"; A.sombraCor = DUAS_CORES[0]; A.luzCor = DUAS_CORES[1];
+const botoesTom = {};
+for (const [chave, rotulo] of TONS) {
+  const b = document.createElement("button");
+  b.type = "button"; b.dataset.tom = chave;
+  b.innerHTML = `<span class="degrade"></span><span>${rotulo}</span>`;
+  b.addEventListener("click", () => escolherTom(chave));
+  $("tons").appendChild(b);
+  botoesTom[chave] = b;
+}
+const coresDoTom = (chave) => (chave === "duas" ? [A.sombraCor, A.luzCor] : TONS.find((t) => t[0] === chave)[2]);
+function mostrarTons() {
+  for (const [chave, b] of Object.entries(botoesTom)) {
+    const [s, l] = coresDoTom(chave);
+    b.querySelector(".degrade").style.background = `linear-gradient(90deg, ${s}, ${l})`;
+    b.setAttribute("aria-pressed", String(chave === A.virar));
+  }
+  $("duas-cores").hidden = A.virar !== "duas";
+  $("cor-sombras").value = A.sombraCor; $("cor-luzes").value = A.luzCor;
+  const forca = entradas.forcaVir.linha, sem = A.virar === "nenhum";
+  forca.classList.toggle("desligado", sem); forca.inert = sem;
+}
+function escolherTom(chave) {
+  A.virar = chave;
+  // um tom pede a foto em P&B: se ela ainda tem cor, liga o "Preto e branco" (os pesos dos canais continuam valendo)
+  if (chave !== "nenhum" && !A.pb && !linhasIguais(lookDoFiltro(false))) { A.pb = true; $("pb").checked = true; ligarMistura(); }
+  mostrarTons(); agendar();
+}
+$("cor-sombras").addEventListener("input", () => { A.sombraCor = $("cor-sombras").value; A.virar = "duas"; mostrarTons(); agendar(); });
+$("cor-luzes").addEventListener("input", () => { A.luzCor = $("cor-luzes").value; A.virar = "duas"; mostrarTons(); agendar(); });
+mostrarTons();
+
+// ---------- cor por cor ----------
+// 8 cores de referencia (como no Lightroom), em saturacao media para sobrar espaco para mais cor
+const CORES = [["vermelho", "Vermelho", 0], ["laranja", "Laranja", 30], ["amarelo", "Amarelo", 60], ["verde", "Verde", 120],
+  ["agua", "Água", 180], ["azul", "Azul", 225], ["roxo", "Roxo", 270], ["magenta", "Magenta", 315]];
+// Estado (24/10/2026, "exata e com memoria"): A.porCor.H e a matriz da Cor por cor (luz linear, depois da partida e
+// dos ajustes); mexidas = as cores que voce tocou, na ordem; pedidos = as presas (no maximo 2: a ultima e a anterior),
+// cada uma com o matiz e a saturacao que voce deixou. As outras nao tem pedido: mostram onde estao de verdade.
+const novaPorCor = () => ({ H: IDENT.slice(), mexidas: [], pedidos: {} });
+A.porCor = novaPorCor();
+let sessao = null, avisoCor = "";            // a mexida em andamento numa cor e o aviso dela (ver mexerNaCor)
+const presas = () => A.porCor.mexidas.filter((k) => A.porCor.pedidos[k]);
+let corAtual = "vermelho";
+const fichas = {};
+for (const [chave, rotulo] of CORES) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "ficha"; b.dataset.cor = chave; b.setAttribute("aria-pressed", String(chave === corAtual));
+  b.innerHTML = `<span class="amostra"><span class="antes"></span><span class="depois"></span></span><span class="rotulo">${rotulo}</span>`;
+  b.addEventListener("click", () => escolherCor(chave));
+  $("fichas").appendChild(b);
+  fichas[chave] = b;
+}
+const corH = $("c-corH"), corS = $("c-corS");
+const sinal = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v);
+// o valor que a barra e o numero mostram: o que voce deixou (presa) ou onde a cor esta de verdade (solta)
+function mostrarValores(v) {
+  corH.value = v.h; corS.value = v.s;
+  corH.nextElementSibling.value = sinal(v.h) + "°";
+  corS.nextElementSibling.value = sinal(v.s) + "%";
+}
+function mostrarCor() {
+  const presa = A.porCor.pedidos[corAtual], real = presa ? null : realDasCores()[corAtual];
+  mostrarValores(presa || { h: real.h, s: real.s ?? 0 });
+  $("cor-escolhida").textContent = CORES.find((x) => x[0] === corAtual)[1];
+  const p = presas();
+  for (const [k, b] of Object.entries(fichas)) {
+    b.setAttribute("aria-pressed", String(k === corAtual));
+    b.dataset.mexida = String(p.includes(k));
+  }
+}
+function escolherCor(chave) { corAtual = chave; sessao = null; avisoCor = ""; mostrarCor(); agendar(); }
+function zerarCores() { A.porCor = novaPorCor(); sessao = null; avisoCor = ""; mostrarCor(); }
+corH.addEventListener("input", () => mexerNaCor("h"));
+corS.addEventListener("input", () => mexerNaCor("s"));
+corH.addEventListener("dblclick", () => voltarCor(corAtual));
+corS.addEventListener("dblclick", () => voltarCor(corAtual));
+numeroDigitavel(corH, corH.nextElementSibling, mostrarCor); numeroDigitavel(corS, corS.nextElementSibling, mostrarCor);
+barraComShift(corH); barraComShift(corS);
+$("zerar-cores").addEventListener("click", () => { zerarCores(); agendar(); });
+
+// ---------- filtro de partida ----------
+let base = null;
+const NEUTRO = { nome: "NOVO", matriz: [1024, 0, 0, 0, 1024, 0, 0, 0, 1024], curvas: [0, 1, 2].map(() => Array.from({ length: 256 }, (_, i) => i)), grao: 0 };
+// filtro feito no JL Camera Tool: a base sai dos controles do site (X10.fltDoSite), que comecam no valor do arquivo
+let siteAtivo = false;
+const siteAtual = () => Object.fromEntries(Object.entries(SITE).map(([k, s]) => [s, A[k]]));
+let cacheSite = { chave: "", b: null };
+function baseAtual() {
+  if (!siteAtivo) return base;
+  const chave = JSON.stringify(siteAtual());
+  if (chave !== cacheSite.chave) cacheSite = { chave, b: X10.fltDoSite(siteAtual()) };
+  return cacheSite.b;
+}
+function ligarSite(site) {
+  siteAtivo = !!site;
+  const lista = Object.fromEntries(CONTROLES.site.map((c) => [c[0], c[5]]));
+  for (const [k, s] of Object.entries(SITE)) { entradas[k].padrao = lista[k]; if (site) entradas[k].padrao = noControle(entradas[k], site[s]); }
+  const g = $("grupo-site"), estavaAberto = g.open && !g.hidden;
+  g.hidden = !siteAtivo;
+  if (siteAtivo) g.open = true;                              // abre sozinho: e o que o arquivo trouxe
+  else if (estavaAberto) { g.open = false; document.querySelector("#ajustes details:not(#grupo-site)").open = true; }
+}
+// Os "Continuar nos Ajustes" e "Voltar ao filtro de antes" das abas valem logo depois delas. Outro filtro em "Comecar de"
+// ou o Zerar os escondem: antes, o Voltar ficava la e jogava fora o filtro escolhido depois (revisao de 26/10/2026).
+function esconderVoltar() { for (const id of ["ir-continuar", "ir-desfazer", "aero-continuar", "aero-desfazer"]) $(id).hidden = true; }
+// ---------- fechar sem salvar (revisao de 26/10/2026) ----------
+// A receita de quando o filtro foi aberto, escolhido, baixado ou mandado para a roda e a referencia: diferente dela =
+// trabalho que se perderia ao fechar ou recarregar. O beforeunload faz o navegador perguntar; o programa ALT pergunta
+// antes de fechar a janela.
+let receitaSalva = null;
+const receitaAgora = () => JSON.stringify(receitaAtual());
+function marcarSalvo() { try { receitaSalva = receitaAgora(); } catch (e) { receitaSalva = null; } }
+function trabalhoNaoSalvo() {
+  if (!base || receitaSalva === null) return false;
+  try { return receitaAgora() !== receitaSalva; } catch (e) { return true; }
+}
+window.trabalhoNaoSalvo = trabalhoNaoSalvo;
+window.addEventListener("beforeunload", (ev) => { if (trabalhoNaoSalvo()) { ev.preventDefault(); ev.returnValue = ""; } });
+function usarBase(b, origem, site = null) {
+  esconderVoltar();
+  base = { nome: b.nome, matriz: b.matriz.slice(), curvas: b.curvas.map((c) => c.map(Number)), grao: Number(b.grao) || 0, camera: b.camera || null };
+  entradas.grao.padrao = Math.max(0, Math.min(64, Math.round(base.grao)));   // o grao do filtro de partida e o "padrao"
+  ligarSite(site);
+  definirControles({});
+  $("nome").value = base.nome;
+  nomeTrocadoPorCodigo();
+  $("status-base").className = "status ok";
+  $("status-base").textContent = `Partindo de ${origem}.`;
+  marcarSalvo();
+  agendar();
+}
+const sel = $("pronto");
+sel.innerHTML = '<option value="novo">Filtro novo (neutro)</option><option value="arquivo" hidden></option><option value="partida" hidden></option>';
+const opArquivo = sel.querySelector('[value="arquivo"]');   // o ultimo .flt aberto: escolher de novo reabre ele
+const opPartida = sel.querySelector('[value="partida"]');   // o filtro de partida que saiu da lista (o sistema mudou)
+let ultimoArquivo = null;
+// A lista: os 8 filtros do sistema que esta no Montar o sistema (ele os manda pelo sessionStorage, que some ao fechar o
+// programa) ou, sem ele, os 8 de fabrica. Mais os 8 de cada outra versao lida la ("Ler outra versão") nesta sessao.
+// Sem historico de uma vez para a outra (desde 23/10/2026). Na 1.0: os 6 do Montar o sistema da 1.0, ou os 6 de
+// fabrica dela (filtros_prontos10.js); "Ler outra versão" so existe na 2.1.
+let prontos = [];
+function lerProntos() {
+  let lista = (UM ? window.FILTROS_PRONTOS_10 : window.FILTROS_PRONTOS) || [];
+  try {
+    const d = JSON.parse(sessionStorage.getItem(daCamera("x10-filtros-do-sistema")) || "null");
+    if (d && Array.isArray(d.filtros) && d.filtros.length) lista = d.filtros.map((f) => ({ grupo: String(d.grupo), nome: String(f.nome), flt: String(f.flt) }));
+  } catch (e) { /* segue com os de fabrica */ }
+  // os filtros da biblioteca (filtros/BIBLIOTECA, por categoria), nas duas cameras: o sensor e o mesmo (revisao de 26/10/2026)
+  const biblioteca = (window.FILTROS_BIBLIOTECA || []).map((f) => ({ grupo: String(f.grupo), nome: String(f.nome), flt: String(f.flt), biblioteca: true }));
+  if (UM) return lista.concat(biblioteca);
+  try {
+    const v = JSON.parse(sessionStorage.getItem("x10-filtros-outras-versoes") || "null");
+    if (Array.isArray(v)) for (const g of v) if (g && Array.isArray(g.filtros))
+      lista = lista.concat(g.filtros.map((f) => ({ grupo: String(g.grupo), nome: String(f.nome), flt: String(f.flt) })));
+  } catch (e) { /* segue sem as outras versoes */ }
+  return lista.concat(biblioteca);
+}
+function montarLista() {
+  const escolhido = /^\d+$/.test(sel.value) ? prontos[Number(sel.value)] : null;
+  prontos = lerProntos();
+  sel.querySelectorAll("optgroup").forEach((g) => g.remove());
+  const grupos = {};
+  prontos.forEach((f, i) => {
+    if (!grupos[f.grupo]) { grupos[f.grupo] = document.createElement("optgroup"); grupos[f.grupo].label = f.grupo; sel.appendChild(grupos[f.grupo]); }
+    const o = document.createElement("option"); o.value = String(i); o.textContent = f.nome; grupos[f.grupo].appendChild(o);
+  });
+  if (escolhido) {                                       // a partida continua a mesma, mesmo saindo da lista
+    const i = prontos.findIndex((f) => f.flt === escolhido.flt && f.nome === escolhido.nome);
+    if (i >= 0) sel.value = String(i);
+    else { opPartida.textContent = `Partindo de: ${escolhido.nome}`; sel.value = "partida"; }
+  }
+}
+montarLista();
+window.addEventListener("storage", (ev) => { if (ev.key === daCamera("x10-filtros-do-sistema") || (!UM && ev.key === "x10-filtros-outras-versoes") || ev.key === null) montarLista(); });
+sel.addEventListener("change", () => {
+  if (sel.value === "novo") return usarBase(NEUTRO, "um filtro novo, neutro");
+  if (sel.value === "arquivo") return ultimoArquivo && abrirTextoFlt(ultimoArquivo.texto, ultimoArquivo.arquivo);
+  if (sel.value === "partida") return;
+  const i = Number(sel.value), f = prontos[i];
+  if (f.biblioteca) {                                    // da biblioteca: abre com a receita, os controles nos lugares
+    abrirTextoFlt(f.flt, `${f.nome}.flt`);
+    sel.value = String(i); opArquivo.hidden = true;
+    $("status-base").textContent = `Partindo de ${f.nome} (${f.grupo.toLowerCase()}), com os controles do jeito que foram salvos.`;
+    return;
+  }
+  const lido = X10.lerFlt(f.flt), site = X10.ajustesDoSite(lido);
+  usarBase({ ...lido, nome: f.nome.replace(/^F\d\s+/, "") }, `${f.nome} (${f.grupo.charAt(0).toLowerCase()}${f.grupo.slice(1)})`, site);
+  $("status-base").textContent += site ? " Ele foi feito no JL Camera Tool: os ajustes do site abriram no primeiro grupo, e os outros grupos mexem por cima."
+    : " As cores dele viraram a base: os controles começam no zero e mexem por cima delas.";
+});
+// receita: os controles do criador vao junto no .flt baixado (linha "criador:"), para voltarem ao abrir o arquivo.
+// Com um filtro do site, os ajustes do site vao em "site" (e nas linhas brightness: etc., para o site reabrir com eles);
+// "base" leva as tabelas que eles fazem, para uma versao antiga do criador abrir igual.
+const eNeutro = (b) => b.matriz.every((v, i) => v === NEUTRO.matriz[i]) && b.curvas.every((c) => c.every((v, i) => Number(v) === i));
+// a ordem das chaves na receita fica a de antes de 26/10/2026 (a cor antes da forca nas Sombras e luzes): na tela a
+// forca veio para cima, mas os .flt saem iguais, byte a byte
+const ORDEM_DA_RECEITA = (() => {
+  const k = Object.keys(entradas), trocar = (a, b) => { const i = k.indexOf(a), j = k.indexOf(b); [k[i], k[j]] = [k[j], k[i]]; };
+  trocar("sombrasF", "sombrasH"); trocar("luzesF", "luzesH");
+  return k;
+})();
+function receitaAtual() {
+  const controles = {}, b = baseAtual();
+  for (const k of ORDEM_DA_RECEITA) if (!SITE[k]) controles[k] = A[k];
+  return { versao: 1, base: eNeutro(b) ? "novo" : { matriz: b.matriz, curvas: b.curvas }, ...(siteAtivo ? { site: siteAtual() } : {}),
+    graoPartida: entradas.grao.padrao, controles, pb: A.pb,                // o grao do filtro de partida continua sendo o "padrao"
+    troca: A.troca, viragem: { tom: A.virar, sombra: A.sombraCor, luz: A.luzCor },
+    porCor: { versao: 2, H: A.porCor.H.slice(), mexidas: A.porCor.mexidas.slice(), pedidos: { ...A.porCor.pedidos } },
+    ...(receitaDoAero() ? { aero: receitaDoAero() } : {}) };
+}
+const fltParaBaixar = () => X10.escreverFlt({ ...comExato(montarFlt()), receita: receitaAtual(), ...(siteAtivo ? { site: siteAtual() } : {}) });
+// a receita so e usada se estiver inteira: 9 numeros de matriz, 3 curvas de 256, ajustes do site em numero.
+// Uma receita mexida a mao ou cortada nao chega a mexer na pagina (antes ela travava a previa e o Baixar).
+const numeros = (l, n) => Array.isArray(l) && l.length === n && l.every((v) => typeof v === "number" && Number.isFinite(v));
+function receitaInteira(r) {
+  if (!r || typeof r !== "object" || Number(r.versao) !== 1) return null;
+  const site = r.site == null ? null : r.site;
+  if (site !== null && (typeof site !== "object" || !Object.values(SITE).every((s) => Number.isFinite(Number(site[s]))))) return null;
+  const b = site ? X10.fltDoSite(site) : r.base === "novo" ? NEUTRO : r.base;
+  if (!b || !numeros(b.matriz, 9) || !Array.isArray(b.curvas) || b.curvas.length !== 3 || !b.curvas.every((c) => numeros(c, 256))) return null;
+  return { site, b };
+}
+// A Cor por cor da receita: a de agora (porCor, versao 2) ou a de antes de 24/10/2026 ("cores": os pedidos de cada cor),
+// que volta com a conta antiga (matrizLegada) para o filtro sair igual. Mexer depois parte dela, com a conta nova.
+function porCorDaReceita(r) {
+  const p = r.porCor, nomes = CORES.map(([k]) => k), faixa = (e, v) => noControle({ r: e, padrao: 0 }, v);
+  if (p && typeof p === "object" && p.versao === 2 && numeros(p.H, 9) && p.H.every((v) => Math.abs(v) < 16)) {
+    const mexidas = Array.isArray(p.mexidas) ? p.mexidas.filter((k, i, l) => nomes.includes(k) && l.indexOf(k) === i) : [];
+    const pedidos = {};
+    for (const k of mexidas.slice(-2)) {
+      const q = p.pedidos && p.pedidos[k];
+      // o pedido pode passar da barra (uma cor arrastada pelas outras ate +150% e presa ali): so um teto de seguranca
+      if (q && Number.isFinite(q.h) && Number.isFinite(q.s)) pedidos[k] = { h: Math.max(-180, Math.min(180, q.h)), s: Math.max(-100, Math.min(500, q.s)) };
+    }
+    return { H: p.H.slice(), mexidas, pedidos };
+  }
+  const cores = Object.fromEntries(nomes.map((k) => [k, { h: faixa(corH, r.cores?.[k]?.h), s: faixa(corS, r.cores?.[k]?.s) }]));
+  const mexidas = nomes.filter((k) => cores[k].h || cores[k].s);
+  return mexidas.length ? { H: matrizLegada(cores), mexidas, pedidos: {} } : novaPorCor();
+}
+function aplicarReceita(r, lido, nome, origem) {   // true se os controles refazem exatamente as cores do arquivo
+  const ok = receitaInteira(r);
+  if (!ok) return false;
+  // os numeros exatos da camera (a linha camera:) valem para a partida so se o arquivo for ela sem mexer: um filtro de
+  // fabrica baixado e reaberto continua exato (revisao de 26/10/2026; antes a matriz mudava 1 ponto em ate 9 numeros)
+  const semMexer = !!lido && !!lido.camera && lido.matriz.every((v, i) => Math.round(v) === Math.round(ok.b.matriz[i]))
+    && lido.curvas.every((c, j) => c.every((v, i) => Math.round(v) === Math.round(ok.b.curvas[j][i])));
+  usarBase({ nome, matriz: ok.b.matriz, curvas: ok.b.curvas, grao: Number(r.graoPartida) || 0, camera: semMexer ? lido.camera : null }, origem, ok.site);   // receita antiga: 0
+  definirControles(r.controles && typeof r.controles === "object" ? r.controles : {});
+  A.pb = r.pb === true; $("pb").checked = A.pb; ligarMistura();
+  A.troca = Object.prototype.hasOwnProperty.call(TROCAS, r.troca) ? r.troca : "rgb"; $("troca").value = A.troca;   // receita antiga: sem troca
+  const vir = r.viragem && typeof r.viragem === "object" ? r.viragem : {}, hex = (h, p) => (typeof h === "string" && /^#[0-9a-f]{6}$/i.test(h) ? h.toLowerCase() : p);
+  A.virar = TONS.some((t) => t[0] === vir.tom) ? vir.tom : "nenhum";
+  A.sombraCor = hex(vir.sombra, DUAS_CORES[0]); A.luzCor = hex(vir.luz, DUAS_CORES[1]); mostrarTons();
+  A.porCor = porCorDaReceita(r); sessao = null;
+  mostrarCor();
+  aeroDaReceita(r);                                     // feito na aba Aerochrome: a aba volta como estava
+  const f = montarFlt();
+  return f.matriz.every((v, i) => v === lido.matriz[i]) && f.curvas.every((c, j) => c.every((v, i) => v === Math.round(lido.curvas[j][i])));
+}
+const semAcento = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "");          // "Verão" -> "Verao"
+const nomeDeArquivo = (s) => semAcento(s).trim().toUpperCase().replace(/\s+/g, "_").replace(/[^A-Z0-9_-]/g, "").slice(0, 20);
+// abre um .flt (do botao, arrastado para a pagina ou o "Arquivo aberto" da lista) e diz o que deu para reconhecer
+function abrirTextoFlt(texto, arquivo) {
+  let lido;
+  try { lido = X10.lerFlt(texto); } catch (e) {
+    $("status-base").className = "status erro";
+    $("status-base").textContent = `Não consegui ler ${arquivo}: não parece um .flt de filtro (o arquivo precisa ter 778 números).`;
+    return false;
+  }
+  ultimoArquivo = { texto, arquivo };
+  opArquivo.textContent = `Arquivo aberto: ${arquivo}`; opArquivo.hidden = false; sel.value = "arquivo";
+  // o nome do arquivo tem _ no lugar dos espacos (SOL_FRIO.flt): volta a ser SOL FRIO, como foi escrito
+  const nome = (nomeDeArquivo(arquivo.replace(/\.flt$/i, "")) || "FILTRO").replace(/_/g, " ");
+  const inteira = lido.receita ? receitaInteira(lido.receita) : null;
+  let refez = false;
+  try { refez = !!inteira && aplicarReceita(lido.receita, lido, nome, arquivo); } catch (e) { refez = false; }
+  if (refez) {
+    $("status-base").textContent = `Partindo de ${arquivo}, com os controles do jeito que foram salvos.`;
+    marcarSalvo();
+    agendar();
+    return true;
+  }
+  const site = X10.ajustesDoSite(lido);                  // feito no JL Camera Tool e nao mudado depois
+  usarBase({ ...lido, nome }, arquivo, site);
+  const tabelas = "as cores dele viraram a base, e os controles começam no zero e mexem por cima delas.";
+  $("status-base").textContent = site
+    ? `Partindo de ${arquivo}, feito no JL Camera Tool. Os ajustes do site que estão nele abriram no primeiro grupo, e os outros grupos mexem por cima.`
+    : !lido.receita && !lido.receitaEstragada ? `Partindo de ${arquivo}. Este .flt guarda só as tabelas de cor, sem os ajustes que as fizeram: ${tabelas}`
+    : !inteira ? `Partindo de ${arquivo}. A linha com os controles do criador está estragada ou é de outra versão do criador: ${tabelas}`
+    : `Partindo de ${arquivo}. Os controles salvos nele não refazem exatamente as cores do arquivo (ele foi mudado depois de salvo): ${tabelas}`;
+  return true;
+}
+async function abrirFlt(arq) {
+  if (!arq) return;
+  let texto = "";
+  try { texto = await arq.text(); } catch (e) { /* sem leitura: cai no aviso de arquivo invalido */ }
+  abrirTextoFlt(texto, arq.name);
+}
+$("abrir").addEventListener("change", (ev) => {
+  const arq = ev.target.files[0];
+  ev.target.value = "";                                  // ja aqui: reabrir o mesmo .flt (para desfazer) volta a funcionar
+  abrirFlt(arq);
+});
+
+// ---------- montar o filtro (visual sobre a base) ----------
+function girarMatiz(graus) {               // gira as cores em volta do eixo do cinza, em luz linear
+  const t = graus * Math.PI / 180, c = Math.cos(t), s = Math.sin(t), k = 1 / Math.sqrt(3), u = (1 - c) / 3;
+  return [c + u, u - k * s, u + k * s, u + k * s, c + u, u - k * s, u - k * s, u + k * s, c + u];
+}
+function matrizDosAjustes() {
+  const bruto = [Math.exp(0.3 * A.temp / 100), Math.exp(-0.2 * A.tinta / 100), Math.exp(-0.3 * A.temp / 100)];
+  const lum = bruto[0] * Y709[0] + bruto[1] * Y709[1] + bruto[2] * Y709[2];   // o branco nao fica mais claro nem mais escuro
+  const G = [bruto[0] / lum, 0, 0, 0, bruto[1] / lum, 0, 0, 0, bruto[2] / lum];
+  if (A.pb) {
+    const w = [A.mixR, A.mixG, A.mixB];
+    return mul3([...w, ...w, ...w], G);
+  }
+  const s = A.sat;
+  const Sat = Array.from({ length: 9 }, (_, k) => (1 - s) * Y709[k % 3] + (Math.floor(k / 3) === k % 3 ? s : 0));
+  return mul3(girarMatiz(A.matiz), mul3(Sat, G));
+}
+// sRGB <-> OKLab (matiz e saturacao medidos como o olho ve)
+const deSrgb = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const paraSrgb = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.sign(c) * Math.abs(c) ** (1 / 2.4) - 0.055);
+function oklab(rgb) {
+  const [r, g, b] = rgb.map(deSrgb);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+function deOklab([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s].map(paraSrgb);
+}
+const hsv = (h, s, v) => { const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)]; };
+const AMOSTRAS = CORES.map(([, , h]) => hsv(h, 0.6, 0.8));          // cores na tela, 0..1
+const dentro = (rgb) => rgb.every((v) => v >= -1e-4 && v <= 1 + 1e-4);
+function corPedida(rgb, dh, ds) {          // gira o matiz e muda a saturacao em OKLab, sem passar do que a tela mostra
+  const [L, a, b] = oklab(rgb), h = Math.atan2(b, a) + dh * Math.PI / 180;
+  let C = Math.hypot(a, b) * (1 + ds / 100);
+  const lab = (c) => [L, c * Math.cos(h), c * Math.sin(h)];
+  if (!dentro(deOklab(lab(C)))) { let lo = 0, hi = C; for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; if (dentro(deOklab(lab(m)))) lo = m; else hi = m; } C = lo; }
+  return deOklab(lab(C)).map(clamp01);
+}
+const telaParaLinear = (rgb) => rgb.map((v) => { const x = clamp01(v) * 255, i = Math.min(254, x | 0); return LINEAR[i] + (LINEAR[i + 1] - LINEAR[i]) * (x - i); });
+function medirCor(antes, depois) {         // diferenca de matiz (graus) e de saturacao (%); s null = a cor quase e cinza
+  const [, a0, b0] = oklab(antes), [, a1, b1] = oklab(depois);
+  if (Math.hypot(a0, b0) < 0.01) return { h: 0, s: null };
+  let dh = (Math.atan2(b1, a1) - Math.atan2(b0, a0)) * 180 / Math.PI;
+  dh = ((dh + 540) % 360) - 180;
+  return { h: Math.round(dh), s: Math.round((Math.hypot(a1, b1) / Math.hypot(a0, b0) - 1) * 100) };
+}
+function matrizDasCores() { return A.porCor.H; }   // a matriz da Cor por cor (o estado; ver mexerNaCor)
+// A conta de antes de 24/10/2026, so para abrir igual os filtros salvos com ela: a matriz que chega mais perto das 8
+// cores pedidas, com peso 8 nas mexidas (a cor pedida nao chegava ao pedido: em media 6 graus e 20% longe).
+function matrizLegada(cores) {
+  const S = AMOSTRAS.map(telaParaLinear);
+  const T = CORES.map(([k], i) => telaParaLinear(corPedida(AMOSTRAS[i], cores[k].h, cores[k].s)));
+  const W = CORES.map(([k]) => (cores[k].h || cores[k].s ? 8 : 1));
+  return X10.matrizPorCor(S, T, W);
+}
+// Onde cada cor esta de verdade: a mesma conta da previa (e dos quadrados), com e sem a Cor por cor.
+function realDasCores() {
+  if (!base || A.pb) return Object.fromEntries(CORES.map(([k]) => [k, { h: 0, s: 0 }]));
+  const cam = naCamera(montarFlt()), cam0 = naCamera(montarFlt(true));
+  return Object.fromEntries(CORES.map(([k], i) => [k, medirCor(cam0.cor(AMOSTRAS[i]), cam.cor(AMOSTRAS[i]))]));
+}
+// O mais perto do pedido que a tela mostra: o mesmo brilho, e a saturacao cortada no limite da tela para esse matiz
+// (girar o verde para a agua, por exemplo, ja encosta no limite e a saturacao cai). E o que a conta tenta alcancar.
+function possivelDaCor(k, h, s) {
+  if (!base || A.pb) return { h: 0, s: 0 };
+  const i = CORES.findIndex((c) => c[0] === k), antes = naCamera(montarFlt(true)).cor(AMOSTRAS[i]);
+  return medirCor(antes, corPedida(antes, h, s));
+}
+// O canal da camera sem o corte em 0 e no maximo, continuando a gama e a curva em linha reta: so para a conta da Cor
+// por cor achar o caminho. Com o corte, uma cor encostada no limite fica "cega" (mexer nao muda nada nela) e a conta
+// empacava longe do pedido. A previa e os quadrados continuam com o canal de verdade.
+function canalSemCorte(L, lut, c, r, g, b) {
+  const v = L[3 * c] * r + L[3 * c + 1] * g + L[3 * c + 2] * b;
+  const gi = Math.max(0, Math.min(1022, Math.floor(v))), gv = GAMA_F[gi] + (GAMA_F[gi + 1] - GAMA_F[gi]) * (v - gi);
+  const li = Math.max(0, Math.min(254, Math.floor(gv)));
+  return lut[c][li] + (lut[c][li + 1] - lut[c][li]) * (gv - li);
+}
+// A conta das 8 cores (ou de outras amostras, cores da tela 0..1) para uma matriz H qualquer, como a previa faz: H
+// depois da partida e dos ajustes, a intensidade, a gama da camera e as curvas do filtro (que nao dependem de H). O
+// branco do filtro (look0 . [1,1,1]) e o que H nao pode mexer: assim a Temperatura e a cor de partida continuam valendo.
+function contextoDaCor(amostras = AMOSTRAS) {
+  const look0 = lookDoFiltro(true), t = A.intensidade / 100, lut = naCamera(montarFlt(true)).lut, lin = amostras.map(telaParaLinear);
+  const mistura = (H) => mul3(H, look0).map((v, k) => IDENT[k] * (1 - t) + v * t);
+  const com = (fn) => (H) => { const L = mistura(H); return lin.map(([r, g, b]) => [0, 1, 2].map((c) => fn(L, lut, c, r, g, b) / 255)); };
+  const saida = com(canal), saidaSemCorte = com(canalSemCorte), S = SENSOR.map((v) => v / 1024);
+  // a matriz que vai para a camera (a do .flt vezes a do sensor): cada numero vai so ate ±4 (4095/1024)
+  const naMatrizDaCamera = (H) => mul3(mistura(H), S);
+  const antes = saida(IDENT), antesSemCorte = saidaSemCorte(IDENT);
+  // Um pedido (a cor de antes, girada e com outra saturacao) na conta sem o corte: a cor sem o corte mais o que o
+  // pedido muda. Numa cor que a camera corta (o ceu do AERORED, que passa de 0 no vermelho), pedir a cor de antes nao
+  // muda nada; pedir a cor cortada na conta sem o corte puxava a matriz para fora do lugar.
+  const pedidoSemCorte = (i, cor) => { const a = oklab(antesSemCorte[i]), b = oklab(cor), c = oklab(antes[i]); return a.map((v, j) => v + b[j] - c[j]); };
+  return { saida, saidaSemCorte, naMatrizDaCamera, antes, pedidoSemCorte, branco: [0, 1, 2].map((r) => look0[3 * r] + look0[3 * r + 1] + look0[3 * r + 2]) };
+}
+// A matriz H = Hinicio + D (cada linha de D perpendicular ao branco: 6 numeros) que chega mais perto dos alvos (cada um
+// com o seu peso), em OKLab, pelo Levenberg-Marquardt, sem o corte da camera (com o corte, uma cor no limite nao
+// mostra para onde ir, e a conta trocava a cor pedida por um estrago menor nas outras). Medido com o corte de verdade,
+// a cor mexida fica em media a 0,1 do pedido possivel. Leva alguns milissegundos: roda a cada passo da barra.
+function resolverCores(ctx, Hinicio, alvos) {
+  const H = matrizPerpendicular(Hinicio, ctx.branco);
+  const custo = (r) => r.reduce((a, b) => a + b * b, 0);
+  const lm = (saida, p0, iteracoes) => {
+    const residuos = (p) => {
+      const sa = saida(H(p)), r = [];
+      for (const a of alvos) { const l = oklab(sa[a.i]); for (let j = 0; j < 3; j++) r.push(a.pesos[j] * (l[j] - a.lab[j])); }
+      // passar de ±3,9 na matriz da camera e proibido: la ela corta, e a cor sai diferente do que a conta acha
+      for (const v of ctx.naMatrizDaCamera(H(p))) r.push(50 * Math.max(0, Math.abs(v) - 3.9));
+      return r;
+    };
+    let p = p0, r = residuos(p), c0 = custo(r), lambda = 1e-3;
+    for (let it = 0; it < iteracoes; it++) {
+      const J = p.map((_, k) => { const q = p.slice(); q[k] += 1e-5; const rq = residuos(q); return rq.map((v, j) => (v - r[j]) / 1e-5); });
+      const JtJ = J.map((a) => J.map((b) => a.reduce((s2, v, j) => s2 + v * b[j], 0))), Jtr = J.map((a) => a.reduce((s2, v, j) => s2 + v * r[j], 0));
+      let melhorou = false;
+      for (let tentativa = 0; tentativa < 8 && !melhorou; tentativa++) {
+        const d = resolverSistema(JtJ.map((l, a) => l.map((v, b) => v + (a === b ? lambda * (1 + v) : 0))), Jtr.map((v) => -v));
+        const q = p.map((v, k) => v + d[k]), rq = residuos(q), cq = custo(rq);
+        if (cq < c0) { p = q; r = rq; c0 = cq; lambda = Math.max(1e-7, lambda / 3); melhorou = true; } else lambda *= 4;
+      }
+      if (!melhorou || c0 < 1e-10) break;
+    }
+    return p;
+  };
+  return H(lm(ctx.saidaSemCorte, [0, 0, 0, 0, 0, 0], 50));
+}
+// As matrizes H = Hinicio + D com cada linha de D perpendicular ao branco (6 numeros, p): o cinza continua cinza
+function matrizPerpendicular(Hinicio, branco) {
+  const n0 = Math.hypot(...branco), u = branco.map((v) => v / n0);
+  const cruz = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const v1 = cruz(u, Math.abs(u[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]), n1 = Math.hypot(...v1), e1 = v1.map((v) => v / n1), e2 = cruz(u, e1);
+  return (p) => Hinicio.map((v, k) => v + p[2 * Math.floor(k / 3)] * e1[k % 3] + p[2 * Math.floor(k / 3) + 1] * e2[k % 3]);
+}
+function resolverSistema(M, b) {             // eliminacao de Gauss com pivo (n x n)
+  const n = b.length, a = M.map((l, i) => [...l, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let piv = c; for (let i = c + 1; i < n; i++) if (Math.abs(a[i][c]) > Math.abs(a[piv][c])) piv = i;
+    [a[c], a[piv]] = [a[piv], a[c]];
+    if (Math.abs(a[c][c]) < 1e-15) continue;
+    for (let i = c + 1; i < n; i++) { const f = a[i][c] / a[c][c]; for (let j = c; j <= n; j++) a[i][j] -= f * a[c][j]; }
+  }
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) { let s2 = a[i][n]; for (let j = i + 1; j < n; j++) s2 -= a[i][j] * x[j]; x[i] = Math.abs(a[i][i]) < 1e-15 ? 0 : s2 / a[i][i]; }
+  return x;
+}
+// Mexer numa cor (barra, numero, dois cliques): ela vira presa no valor da barra e chega a ele; a ultima outra presa
+// fica onde voce a deixou; as demais mudam o minimo que o olho ve a partir de onde estavam quando voce comecou a mexer
+// nesta cor. Enquanto a mesma cor e mexida (arrastar, digitar de novo), a conta parte sempre do mesmo comeco: ir e
+// voltar com a barra nao acumula nada nas outras.
+// Pesos: a cor mexida ganha (matiz e saturacao 40, brilho 8); a outra presa vem depois (12 e 3), porque nem sempre
+// as duas cabem (cores quase opostas giram juntas na camera); as soltas pesam 1 para ficar onde estao.
+// componente: "h" ou "s", a barra que mexeu; a outra metade do pedido vem de onde a cor estava (mesmo alem da barra).
+// A Cor por cor e pedida com a Intensidade em 100%: a Intensidade mistura o filtro inteiro (ela inclusive) com o neutro,
+// entao mudar a Intensidade enfraquece as cores presas junto com o resto, como diz a barra, e nao muda o pedido.
+function comIntensidadeCheia(fn) {
+  const t = A.intensidade;
+  if (t === 100) return fn();
+  A.intensidade = 100;
+  try { return fn(); } finally { A.intensidade = t; }
+}
+const chaveDaCor = () => comIntensidadeCheia(() => JSON.stringify(montarFlt(true)));
+// As presas no lugar (revisao de 26/10/2026): a matriz da Cor por cor vale depois da partida e dos ajustes, entao mudar
+// outro ajuste (a Temperatura, o Contraste, a partida) levava as presas para outro lugar, e a pagina culpava a camera.
+// Quando o filtro sem a Cor por cor muda, a conta refaz a matriz: as presas voltam ao pedido e as soltas ficam onde o
+// ajuste novo as pos. Um filtro recem-aberto (sem chave) fica com a matriz que foi salva.
+function presasNoLugar() {
+  if (!base || A.pb) return;
+  const chave = chaveDaCor();
+  if (A.porCor.chave === chave) return;
+  const antes = A.porCor.chave, ps = presas();
+  A.porCor.chave = chave;
+  if (antes === undefined || !ps.length) return;
+  const ctx = comIntensidadeCheia(() => contextoDaCor()), atual = ctx.saidaSemCorte(A.porCor.H), ultima = ps[ps.length - 1];
+  const alvos = CORES.map(([k], i) => {
+    const p = A.porCor.pedidos[k];
+    if (!p) return { i, lab: oklab(atual[i]), pesos: [1, 1, 1] };
+    const [pa, pl] = k === ultima ? [40, 8] : [12, 3];
+    return { i, lab: ctx.pedidoSemCorte(i, corPedida(ctx.antes[i], p.h, p.s)), pesos: [pl, pa, pa] };
+  });
+  A.porCor.H = resolverCores(ctx, A.porCor.H, alvos);
+  sessao = null;
+}
+// Dois cliques na Matiz ou na Saturacao: a cor volta ao padrao (onde estaria sem a Cor por cor) e fica solta; as outras
+// presas ficam onde estao. Antes, os dois cliques prendiam a cor em 0 e soltavam outra presa sem dizer.
+function voltarCor(X) {
+  if (!base || A.pb) return;
+  const ctx = comIntensidadeCheia(() => contextoDaCor()), atual = ctx.saidaSemCorte(A.porCor.H);
+  const outras = presas().filter((k) => k !== X);
+  const alvos = CORES.map(([k], i) => (k === X ? { i, lab: ctx.pedidoSemCorte(i, ctx.antes[i]), pesos: [8, 40, 40] }
+    : A.porCor.pedidos[k] && outras.includes(k) ? { i, lab: ctx.pedidoSemCorte(i, corPedida(ctx.antes[i], A.porCor.pedidos[k].h, A.porCor.pedidos[k].s)), pesos: [3, 12, 12] }
+      : { i, lab: oklab(atual[i]), pesos: [1, 1, 1] }));
+  A.porCor.H = resolverCores(ctx, A.porCor.H, alvos);
+  A.porCor.mexidas = A.porCor.mexidas.filter((k) => k !== X);
+  A.porCor.pedidos = Object.fromEntries(Object.entries(A.porCor.pedidos).filter(([k]) => k !== X));
+  A.porCor.chave = chaveDaCor();
+  sessao = null; avisoCor = "";
+  mostrarCor(); agendar();
+}
+function mexerNaCor(componente) {
+  if (!base || A.pb) return;
+  const X = corAtual, chave = JSON.stringify(montarFlt(true));
+  if (!sessao || sessao.cor !== X || sessao.chave !== chave) {
+    const ctx = comIntensidadeCheia(() => contextoDaCor()), outra = presas().filter((k) => k !== X).slice(-1)[0];
+    const real = comIntensidadeCheia(() => realDasCores())[X];
+    // as soltas ficam onde estao na conta sem o corte (a mesma que procura a matriz): assim, numa cor cortada, ficar
+    // onde esta e de fato nao mexer nela
+    sessao = { cor: X, chave, ctx, inicio: A.porCor.H.slice(), atual: ctx.saidaSemCorte(A.porCor.H), outra, pedidoOutra: outra ? A.porCor.pedidos[outra] : null,
+      pedido: A.porCor.pedidos[X] ? { ...A.porCor.pedidos[X] } : { h: real.h, s: real.s ?? 0 } };
+  }
+  const { ctx } = sessao, pedido = sessao.pedido;
+  if (componente === "h") pedido.h = Number(corH.value); else pedido.s = Number(corS.value);
+  const alvo = (i, p, pa, pl) => ({ i, lab: ctx.pedidoSemCorte(i, corPedida(ctx.antes[i], p.h, p.s)), pesos: [pl, pa, pa] });
+  const alvos = CORES.map(([k], i) => (k === X ? alvo(i, pedido, 40, 8)
+    : k === sessao.outra ? alvo(i, sessao.pedidoOutra, 12, 3)
+    : { i, lab: oklab(sessao.atual[i]), pesos: [1, 1, 1] }));
+  A.porCor.H = resolverCores(ctx, sessao.inicio, alvos);
+  A.porCor.mexidas = [...A.porCor.mexidas.filter((k) => k !== X), X];
+  A.porCor.pedidos = { [X]: { ...pedido } };
+  A.porCor.chave = chaveDaCor();
+  avisoCor = "";
+  if (sessao.outra) {                         // a outra presa coube? se nao, ela fica solta, e a pagina diz por que
+    const i = CORES.findIndex((c) => c[0] === sessao.outra), alvoOutra = oklab(corPedida(ctx.antes[i], sessao.pedidoOutra.h, sessao.pedidoOutra.s));
+    const agora = oklab(ctx.saida(A.porCor.H)[i]);   // com o corte: onde ela fica de verdade
+    if (Math.hypot(agora[1] - alvoOutra[1], agora[2] - alvoOutra[2]) < 0.02) A.porCor.pedidos = { [sessao.outra]: sessao.pedidoOutra, ...A.porCor.pedidos };
+    else {
+      const nome = (k) => CORES.find((c) => c[0] === k)[1].toLowerCase(), fem = sessao.outra === "agua";
+      avisoCor = `Para ${X === "agua" ? "a" : "o"} ${nome(X)} chegar lá, ${fem ? "a" : "o"} ${nome(sessao.outra)} saiu de onde você ${fem ? "a" : "o"} deixou: na câmera, essas duas cores não se mexem separadas.`;
+    }
+  }
+  mostrarCor(); agendar();
+}
+// Os quadrados mostram o que a camera faz com o filtro inteiro (partida, ajustes, curvas): em cima sem a Cor por cor
+// (cam0), embaixo com ela (cam). A medida e a diferenca entre os dois, que e o que este ajuste muda de verdade.
+const css = (rgb) => `rgb(${rgb.map((v) => Math.round(clamp01(v) * 255)).join(",")})`;
+function atualizarCores(look, cam, cam0) {
+  const semCor = Math.max(...[0, 1, 2].map((j) => Math.max(Math.abs(look[j] - look[3 + j]), Math.abs(look[j] - look[6 + j])))) < 0.02;
+  $("sem-cor").hidden = !semCor;
+  $("por-cor").classList.toggle("desligado", semCor);
+  $("por-cor").querySelector(".so-com-cor").inert = semCor;           // desligado tambem para o Tab
+  CORES.forEach(([k], i) => {
+    const antes = cam0.cor(AMOSTRAS[i]), depois = cam.cor(AMOSTRAS[i]);
+    fichas[k].querySelector(".antes").style.background = css(antes);
+    fichas[k].querySelector(".depois").style.background = css(depois);
+    fichas[k].medida = medirCor(antes, depois);
+  });
+  const m = fichas[corAtual].medida, p = A.porCor.pedidos[corAtual], nomeDe = (k) => CORES.find((x) => x[0] === k)[1].toLowerCase();
+  const nome = nomeDe(corAtual), fem = corAtual === "agua";        // "a água"; as outras sao "o vermelho", "o azul"...
+  const mexeu = !A.porCor.H.every((v, k) => Math.abs(v - IDENT[k]) < 1e-9), lista = (l) => (l.length > 1 ? `${l.slice(0, -1).join(", ")} e ${l[l.length - 1]}` : l[0]);
+  if (!p) mostrarValores({ h: m.h, s: m.s ?? 0 });                  // solta: a barra acompanha onde a cor esta
+  const presasAgora = presas().map(nomeDe);
+  $("resultado-cor").textContent = !mexeu ? "Nenhuma cor mexida."
+    : (m.s === null ? `${fem ? "A" : "O"} ${nome} quase não tem cor com este filtro, então o ajuste dele quase não aparece.`
+      : p ? `${fem ? "A" : "O"} ${nome} está ${fem ? "presa" : "preso"} onde você deixou: matiz ${sinal(m.h)}° e saturação ${sinal(m.s)}%`
+        + (Math.abs(m.h - p.h) <= 2 && Math.abs(m.s - p.s) <= 3 ? "."
+          : A.intensidade < 100 ? ` (você pediu ${sinal(p.h)}° e ${sinal(p.s)}%: com a Intensidade em ${A.intensidade}%, a Cor por cor também fica mais fraca).`
+          : (() => {                                                   // nao chegou: o limite e a tela ou a camera?
+            const q = possivelDaCor(corAtual, p.h, p.s);
+            return Math.abs(m.h - q.h) <= 2 && Math.abs(m.s - (q.s ?? 0)) <= 3
+              ? ` (você pediu ${sinal(p.h)}° e ${sinal(p.s)}%: com esse matiz, ${fem ? "ela" : "ele"} já chega ao limite do que a tela mostra).`
+              : ` (você pediu ${sinal(p.h)}° e ${sinal(p.s)}%: a câmera chega até aí).`;
+          })())
+      : `${fem ? "A" : "O"} ${nome} foi ${fem ? "junta" : "junto"} com as outras: matiz ${sinal(m.h)}° e saturação ${sinal(m.s)}%. Mexa ${fem ? "nela" : "nele"} para ${fem ? "prendê-la" : "prendê-lo"} onde quiser.`)
+      + (presasAgora.length ? ` Presas onde você deixou: ${lista(presasAgora)}.` : "") + (avisoCor ? ` ${avisoCor}` : "");
+}
+function corDoMatiz(h) {                   // RGB 0..1 com saturacao e brilho cheios
+  const f = (n) => { const k = (n + h / 60) % 6; return 1 - Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [f(5), f(3), f(1)];
+}
+function curvaDeTom(x) {
+  if (A.pretos < 0) { const k = -A.pretos / 100 * 0.5; x = (x - k) / (1 - k); }
+  else if (A.pretos > 0) { const k = A.pretos / 100 * 0.25; x = k + x * (1 - k); }
+  if (A.brancos < 0) x = x * (1 + A.brancos / 100 * 0.4);
+  else if (A.brancos > 0) x = x / (1 - A.brancos / 100 * 0.3);
+  x = clamp01(x + A.brilho / 100 * 0.25);
+  const c = A.contraste / 100;
+  x = clamp01(x + c * x * (1 - x) * (2 * x - 1) * (c > 0 ? 1.0 : 0.9));
+  return Math.pow(x, 1 / A.meios);
+}
+// Trocar canais: cada canal da saida pega a linha da matriz e a curva de outro canal do filtro de partida, como se a
+// foto pronta trocasse de canal. Uma troca nao aumenta o ruido (a matriz so muda de ordem).
+const TROCAS = { rgb: [0, 1, 2], rg: [1, 0, 2], gb: [0, 2, 1], rb: [2, 1, 0], girar1: [2, 0, 1], girar2: [1, 2, 0] };
+function baseDoFiltro() {
+  const b = baseAtual(), p = TROCAS[A.troca];
+  if (!p || A.troca === "rgb") return b;
+  return { matriz: p.flatMap((k) => b.matriz.slice(3 * k, 3 * k + 3)), curvas: p.map((k) => b.curvas[k]) };
+}
+function lookDoFiltro(semCorPorCor) {      // a matriz do filtro (luz linear), antes da intensidade
+  const antesDasCores = mul3(matrizDosAjustes(), baseDoFiltro().matriz.map((v) => v / 1024));
+  return A.pb || semCorPorCor ? antesDasCores : mul3(matrizDasCores(), antesDasCores);
+}
+const linhasIguais = (m) => [3, 6].every((o) => [0, 1, 2].every((j) => Math.abs(m[o + j] - m[j]) < 0.02));   // foto em P&B
+const hexParaRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+let viragemValendo = false;                // a viragem escolhida esta valendo (a foto esta em P&B)?
+function montarFlt(semCorPorCor = false) {  // semCorPorCor: o filtro sem a "Cor por cor" (os quadrados de cima)
+  if (!semCorPorCor) presasNoLugar();
+  const base = baseDoFiltro();
+  const look = lookDoFiltro(semCorPorCor);
+  const tomS = corDoMatiz(A.sombrasH), tomL = corDoMatiz(A.luzesH);
+  const lumS = tomS[0] * 0.2126 + tomS[1] * 0.7152 + tomS[2] * 0.0722, lumL = tomL[0] * 0.2126 + tomL[1] * 0.7152 + tomL[2] * 0.0722;
+  const meio = 0.5 - 0.4 * A.equilibrio / 100;
+  const gamas = [A.gamaR, A.gamaG, A.gamaB];
+  const x = [0, 1, 2].map((c) => base.curvas[c].map((v) => {   // 0..1, ainda sem arredondar
+    let x = curvaDeTom(clamp01(v / 255));
+    x = Math.pow(clamp01(x), 1 / gamas[c]);
+    const wL = clamp01((x - meio + 0.3) / 0.6), wS = 1 - wL;
+    x += 0.35 * (A.sombrasF / 100 * wS * (tomS[c] - lumS) + A.luzesF / 100 * wL * (tomL[c] - lumL));
+    return clamp01(x);
+  }));
+  // viragem: cada nivel vira o ponto do degrade sombras -> luzes na altura do seu brilho, misturado pela forca
+  const vale = A.virar !== "nenhum" && linhasIguais(look);
+  if (!semCorPorCor) viragemValendo = vale;
+  if (vale) {
+    const [s, l] = coresDoTom(A.virar).map(hexParaRgb), f = A.forcaVir / 100;
+    for (let i = 0; i < 256; i++) {
+      const y = Y709[0] * x[0][i] + Y709[1] * x[1][i] + Y709[2] * x[2][i];
+      for (let c = 0; c < 3; c++) x[c][i] = x[c][i] * (1 - f) + (s[c] + (l[c] - s[c]) * y) * f;
+    }
+  }
+  // intensidade: o filtro inteiro misturado com o neutro (100% = o filtro como esta, 0% = sem filtro)
+  const t = A.intensidade / 100;
+  const matriz = look.map((v, k) => Math.round((IDENT[k] * (1 - t) + v * t) * 1024));
+  const curvas = x.map((cv) => cv.map((v, i) => Math.round(i * (1 - t) + v * 255 * t)));
+  return { matriz, curvas, grao: A.grao };
+}
+
+// O que mexer para cada aviso do nucleo (X10.avisosDoFiltro), pelo comeco do texto curto
+function oQueMexer(a) {
+  const c = a.curto || "";
+  if (c.startsWith("Ruído")) return " Para baixar: menos Saturação ou Intensidade, ou cores menos fortes na Cor por cor.";
+  if (c.startsWith("Chapam") || c.startsWith("Cores muito vivas")) return " Para devolver o detalhe: menos Saturação ou Contraste, ou menos força na Cor por cor.";
+  if (c.startsWith("Branco estoura")) return " Para segurar: Brancos para baixo (−) ou Brilho para baixo.";
+  if (c.startsWith("Preto engole")) return " Para abrir: Pretos para cima (+) ou Contraste para baixo.";
+  return "";
+}
+
+// ---------- previa como a camera faz ----------
+const GAMA_F = X10.GAMA.map((v) => v / 256);
+const LINEAR = Array.from({ length: 256 }, (_, v) => {            // desfaz a gama da camera: 0..255 -> 0..1023
+  let lo = 0, hi = 1023;
+  if (v <= GAMA_F[0]) return 0;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (GAMA_F[m] <= v) lo = m; else hi = m; }
+  return lo + (v - GAMA_F[lo]) / (GAMA_F[hi] - GAMA_F[lo]);
+});
+// A conta da camera para um canal de uma cor (luz linear 0..1023): matriz gravada, gama da camera e as 8 retas.
+// O grao do .flt fica de fora: na ALT 2.1 o grao e o da posicao da roda, nao o do arquivo.
+function canal(L, lut, c, r, g, b) {
+  let v = L[3 * c] * r + L[3 * c + 1] * g + L[3 * c + 2] * b;
+  v = v < 0 ? 0 : v > 1023 ? 1023 : v;
+  const gi = v | 0, gv = GAMA_F[gi] + (GAMA_F[Math.min(1023, gi + 1)] - GAMA_F[gi]) * (v - gi);
+  const li = Math.min(254, gv | 0), f = gv - li;
+  return lut[c][li] * (1 - f) + lut[c][li + 1] * f;
+}
+const INV_SENSOR = inv3(SENSOR.map((v) => v / 1024));
+// O filtro de partida trouxe os numeros exatos da camera (a linha "camera:" dos filtros de fabrica, dos do sistema
+// aberto e dos exportados): enquanto os 778 numeros forem os dele, a previa e o .flt que sai levam esses numeros, e o
+// filtro chega identico a camera. Mexeu num controle, vale a conta de sempre.
+function comExato(flt) {
+  if (!base || !base.camera) return flt;
+  const r = Math.round, iguais = flt.matriz.every((v, i) => r(v) === r(base.matriz[i]))
+    && flt.curvas.every((c, j) => c.every((v, i) => r(v) === r(base.curvas[j][i])));
+  return iguais ? { ...flt, camera: base.camera } : flt;
+}
+function naCamera(flt) {                   // o que a camera grava deste filtro, e a conta dela para uma cor da tela (0..1)
+  const fw = X10.fltParaFirmware(comExato(flt), SENSOR);            // matriz cortada no limite + 8 retas
+  const lut = X10.segmentosParaLut(fw.seg), L = mul3(fw.matriz.map((v) => v / 1024), INV_SENSOR);
+  return { fw, lut, L, cor: (rgb) => { const [r, g, b] = telaParaLinear(rgb); return [0, 1, 2].map((c) => canal(L, lut, c, r, g, b) / 255); } };
+}
+let foto = null, ver = "camera";
+const tela = $("tela"), ctx = tela.getContext("2d", { willReadFrequently: true });
+// A resolucao da previa acompanha o tamanho dela na tela (de 480 a 1440 px de largura, nunca acima da foto): numa tela
+// grande ou em tela cheia a foto nao fica esticada e borrada; numa pequena a conta continua leve.
+let fonteDaFoto = null;
+function larguraDaPrevia(fonte) {
+  const caixa = document.querySelector(".tela").getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (!caixa.width || !caixa.height) return Math.min(720, fonte.width);
+  const k = Math.min((caixa.width * dpr) / fonte.width, (caixa.height * dpr) / fonte.height);
+  return Math.round(Math.min(fonte.width, 1440, Math.max(480, fonte.width * k)));
+}
+function definirFoto(fonte) {                                       // fonte: Image ou canvas
+  fonteDaFoto = fonte;
+  const escala = larguraDaPrevia(fonte) / fonte.width;
+  tela.width = Math.round(fonte.width * escala); tela.height = Math.round(fonte.height * escala);
+  ctx.drawImage(fonte, 0, 0, tela.width, tela.height);
+  foto = ctx.getImageData(0, 0, tela.width, tela.height);
+  ruidoFoto = null;
+  agendar();
+}
+// ---------- pouca luz: o ruido do sensor, simulado ----------
+// Cada canal do sensor ganha um ruido aleatorio (sempre o mesmo para a mesma foto, para comparar), de desvio
+// RUIDO_BASE + RUIDO_RAIZ * raiz(brilho), em luz linear 0..1023: pesa mais no escuro, como num sensor com o ganho alto.
+// Ele passa pela matriz do filtro como o ruido de verdade, entao a previa mostra quanto o filtro o aumenta.
+// E aproximado: a camera ainda reduz parte do ruido depois.
+const RUIDO_BASE = 3, RUIDO_RAIZ = 0.7;
+const LUT_NEUTRA = [0, 1, 2].map(() => Array.from({ length: 256 }, (_, i) => i));
+let luz = "dia", ruidoFoto = null;
+function ruidoDaFoto() {
+  if (ruidoFoto) return ruidoFoto;
+  const n = foto.width * foto.height, z = new Float32Array(3 * n), S = SENSOR.map((v) => v / 1024);
+  let s = 12345;
+  const u = () => { s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff; return (s + 1) / 0x80000001; };
+  for (let p = 0; p < 3 * n; p += 3) {
+    const a = [0, 1, 2].map(() => Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u()));    // um por canal do sensor
+    for (let c = 0; c < 3; c++) z[p + c] = S[3 * c] * a[0] + S[3 * c + 1] * a[1] + S[3 * c + 2] * a[2];   // levado a luz linear
+  }
+  return (ruidoFoto = z);
+}
+document.querySelectorAll("[data-luz]").forEach((b) => b.addEventListener("click", () => {
+  luz = b.dataset.luz;
+  document.querySelectorAll("[data-luz]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.luz === luz)));
+  $("dica-luz").hidden = luz !== "pouca";
+  agendar();
+}));
+function cartela() {                       // desenhada em 1440 x 800 (o dobro), para ficar nitida numa tela grande
+  const c = document.createElement("canvas"); c.width = 1440; c.height = 800;
+  const g = c.getContext("2d");
+  g.scale(2, 2);
+  for (let x = 0; x < 720; x++) {
+    const h = (x / 720) * 360;
+    for (const [y0, y1, s, l] of [[0, 110, 100, 50], [110, 180, 100, 30], [180, 250, 45, 70], [250, 300, 20, 55]]) {
+      g.fillStyle = `hsl(${h} ${s}% ${l}%)`; g.fillRect(x, y0, 1, y1 - y0);
+    }
+    const v = Math.round((x / 719) * 255); g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, 300, 1, 40);
+  }
+  const peles = ["#FFE0C4", "#EABD9D", "#C68666", "#8D5538", "#583626", "#DCA684"];
+  peles.forEach((p, i) => { g.fillStyle = p; g.fillRect(i * 120, 340, 120, 60); });
+  return c;
+}
+let pedido = false;
+function agendar() {
+  if (!pedido) { pedido = true; requestAnimationFrame(desenhar); }
+  clearTimeout(historico.espera); historico.espera = setTimeout(registrarPasso, 500);
+  clearTimeout(estouro.espera); estouro.espera = setTimeout(mostrarEstouro, 500);
+}
+// ---------- Desfazer (revisao de 26/10/2026) ----------
+// Cada mudanca que assenta (meio segundo sem mexer) vira um passo; o Desfazer (ou Ctrl+Z) volta ao passo anterior, com
+// o filtro inteiro: partida, controles, Cor por cor, nome e a aba Aerochrome. Ate 40 passos. Os "Voltar ao filtro de
+// antes" das abas continuam. A foto nao entra.
+const historico = { passos: [], espera: 0, voltando: false };
+const estouro = { rodando: false, parar: false, antes: null, espera: 0 };   // o Tirar estouro (mais abaixo)
+function registrarPasso() {
+  if (historico.voltando || !base || (typeof ir !== "undefined" && ir.rodando) || estouro.rodando) return;
+  let chave;
+  try { chave = `${receitaAgora()}|${$("nome").value}`; } catch (e) { return; }
+  const ultimo = historico.passos[historico.passos.length - 1];
+  if (ultimo && ultimo.chave === chave) return;
+  historico.passos.push({ chave, estado: guardarEstado() });
+  if (historico.passos.length > 40) historico.passos.shift();
+  $("desfazer-filtro").disabled = historico.passos.length < 2;
+}
+function desfazer() {
+  clearTimeout(historico.espera); registrarPasso();     // o que acabou de mudar tambem conta como um passo
+  if (historico.passos.length < 2 || (typeof ir !== "undefined" && ir.rodando)) return;
+  historico.passos.pop();
+  historico.voltando = true;
+  try { voltarEstado(historico.passos[historico.passos.length - 1].estado); } finally { historico.voltando = false; }
+  $("desfazer-filtro").disabled = historico.passos.length < 2;
+}
+// a cor das Sombras e das Luzes so vale com a forca acima de 0, e o Equilibrio so com uma das duas: apagados ate la
+function ligarSombrasLuzes() {
+  const apagar = (k, sim) => { const l = entradas[k].linha; l.classList.toggle("desligado", sim); l.inert = sim; };
+  apagar("sombrasH", !A.sombrasF); apagar("luzesH", !A.luzesF); apagar("equilibrio", !A.sombrasF && !A.luzesF);
+}
+function desenhar() {
+  pedido = false;
+  ligarSombrasLuzes();
+  if (!base) return;
+  const cam = naCamera(montarFlt()), fw = cam.fw;
+  // mesmo sem foto: os grupos dizem o que mudou, a Cor por cor mostra as cores e a linha de baixo avisa dos limites
+  marcarMudados();
+  const mexeuCor = !A.porCor.H.every((v, k) => Math.abs(v - IDENT[k]) < 1e-9);
+  $("viragem-desligada").hidden = A.virar === "nenhum" || viragemValendo;
+  atualizarCores(A.pb ? [1, 1, 1, 1, 1, 1, 1, 1, 1] : mul3(matrizDosAjustes(), baseDoFiltro().matriz.map((v) => v / 1024)),
+    cam, A.pb || !mexeuCor ? cam : naCamera(montarFlt(true)));
+  const avisos = [];
+  if (fw.cortados) avisos.push(`a cor passa do limite da câmera em ${fw.cortados} de 9 números e é cortada (baixe a Saturação, a Intensidade ou a força das cores na Cor por cor)`);
+  if (fw.erroMax > 6) avisos.push(`a curva dobra rápido demais para as 8 retas da câmera (até ${fw.erroMax} níveis de diferença; suavize o Contraste, os Pretos, os Brancos ou o Gama)`);
+  // e os limites que estragam a foto (X10.medirFiltro): ruido, cores chapadas, branco que estoura, preto que some
+  const medida = X10.medirFiltro({ matriz: fw.matriz, lut: cam.lut }, SENSOR), limites = X10.avisosDoFiltro(medida, UM ? "1.0" : "2.1");
+  const caixa = $("camera"), linha = document.createElement("p");
+  // texto inteiro e curto lado a lado; o CSS mostra o curto no celular, onde a previa presa no alto tem pouco espaco
+  const dois = (el, longo, curto) => {
+    const a = document.createElement("span"), b = document.createElement("span");
+    a.className = "longo"; a.textContent = longo; b.className = "curto"; b.textContent = curto; el.append(a, b);
+  };
+  caixa.className = "camera";
+  linha.className = avisos.length ? "aviso" : "";
+  linha.textContent = avisos.length ? `Atenção: ${avisos.join("; ")}. A prévia já mostra o resultado na câmera.`
+    : `A câmera reproduz este filtro${fw.erroMax ? ` com até ${fw.erroMax} ${fw.erroMax === 1 ? "nível" : "níveis"} de diferença na curva` : " exatamente"}.`;
+  if (!limites.some((a) => a.texto.startsWith("Ruído"))) {
+    const r = String(medida.ruido).replace(".", ",");
+    dois(linha, ` Ruído ${r}× o da câmera sem filtro.`, ` Ruído ${r}×.`);
+  }
+  caixa.replaceChildren(linha);
+  if (limites.length) {
+    const lista = document.createElement("ul");
+    for (const a of limites) { const item = document.createElement("li"); item.className = a.nivel; dois(item, `${a.texto}${oQueMexer(a)}`, a.curto); lista.append(item); }
+    caixa.append(lista);
+  }
+  if (!foto) return;
+  const saida = ctx.createImageData(foto.width, foto.height);
+  const d = foto.data, o = saida.data, pouca = luz === "pouca", z = pouca ? ruidoDaFoto() : null;
+  // sem filtro com pouca luz: a camera neutra, com o mesmo ruido, para comparar com o filtro
+  const [M, T] = ver === "original" ? [IDENT, LUT_NEUTRA] : [cam.L, cam.lut];
+  if (ver === "estouro") {                               // onde estoura (revisao de 26/10/2026): as mesmas contas do guia
+    for (let i = 0; i < d.length; i += 4) {
+      const r = LINEAR[d[i]], g = LINEAR[d[i + 1]], b = LINEAR[d[i + 2]], maxIn = Math.max(d[i], d[i + 1], d[i + 2]);
+      let maior = 0, chapa = false, y = 0;
+      for (let c = 0; c < 3; c++) {
+        const v = M[3 * c] * r + M[3 * c + 1] * g + M[3 * c + 2] * b, sai = canal(M, T, c, r, g, b);
+        if (v < -2 || v > 1025) chapa = true;
+        maior = Math.max(maior, sai); y += Y709[c] * sai;
+      }
+      const cor = maxIn < 250 && maior >= 254 ? [255, 90, 90] : maxIn > 12 && maior <= 3 ? [90, 160, 255] : chapa ? [255, 214, 10] : null;
+      const cinza = 0.45 * y;
+      o[i] = cor ? cor[0] : cinza; o[i + 1] = cor ? cor[1] : cinza; o[i + 2] = cor ? cor[2] : cinza; o[i + 3] = 255;
+    }
+    ctx.putImageData(saida, 0, 0);
+    return;
+  }
+  for (let i = 0, p = 0; i < d.length; i += 4, p += 3) {
+    if (ver === "original" && !pouca) { o[i] = d[i]; o[i + 1] = d[i + 1]; o[i + 2] = d[i + 2]; o[i + 3] = 255; continue; }
+    let r = LINEAR[d[i]], g = LINEAR[d[i + 1]], b = LINEAR[d[i + 2]];
+    if (pouca) {
+      const s = RUIDO_BASE + RUIDO_RAIZ * Math.sqrt(Math.max(0, Y709[0] * r + Y709[1] * g + Y709[2] * b));
+      r += s * z[p]; g += s * z[p + 1]; b += s * z[p + 2];
+    }
+    o[i] = canal(M, T, 0, r, g, b); o[i + 1] = canal(M, T, 1, r, g, b); o[i + 2] = canal(M, T, 2, r, g, b);
+    o[i + 3] = 255;
+  }
+  ctx.putImageData(saida, 0, 0);
+}
+function mostrarVer(v) {
+  ver = v;
+  $("dica-estouro").hidden = v !== "estouro";
+  document.querySelectorAll("[data-ver]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.ver === v)));
+  agendar();
+}
+document.querySelectorAll("[data-ver]").forEach((b) => b.addEventListener("click", () => mostrarVer(b.dataset.ver)));
+// segurar a foto (mouse, dedo ou espaco) mostra sem o filtro; soltar volta
+let antesDeSegurar = null;
+const segurar = () => { if (antesDeSegurar === null) { antesDeSegurar = ver; mostrarVer("original"); } };
+const soltar = () => { if (antesDeSegurar !== null) { const v = antesDeSegurar; antesDeSegurar = null; mostrarVer(v); } };
+tela.addEventListener("pointerdown", (ev) => { tela.setPointerCapture(ev.pointerId); segurar(); });
+for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) tela.addEventListener(t, soltar);
+tela.addEventListener("keydown", (ev) => { if (ev.key === " ") { ev.preventDefault(); segurar(); } });
+tela.addEventListener("keyup", (ev) => { if (ev.key === " ") soltar(); });
+tela.addEventListener("blur", soltar);                              // trocar de campo (Tab) segurando o espaco tambem solta
+window.addEventListener("blur", soltar);
+// ---------- a foto da previa: a sua (escolher, arrastar ou colar), uma das 5 de teste ou a cartela ----------
+// As fotos de teste (fotos_teste.js: Wikimedia Commons, CC0) nao sao guardadas como "sua foto": ficam sempre na lista.
+let suaFoto = null;                                                 // a ultima foto enviada, para voltar a ela depois
+let fotoAtual = null;                                               // "sua", "cartela" ou "teste:N"
+const FOTOS_TESTE = window.FOTOS_TESTE || [];
+const qualFoto = $("qual-foto"), opSua = qualFoto.querySelector('[value="sua"]');
+const imagensDeTeste = {};
+const imagemDeTeste = (i) => imagensDeTeste[i] || (imagensDeTeste[i] = new Promise((ok, erro) => {
+  const im = new Image(); im.onload = () => ok(im); im.onerror = () => erro(new Error("Não consegui abrir a foto de teste.")); im.src = FOTOS_TESTE[i].src;
+}));
+function usarFotoDeTeste(i) { return imagemDeTeste(i).then((im) => mostrarFoto(im, `teste:${i}`), (e) => avisoFoto(e.message)); }
+FOTOS_TESTE.forEach((f, i) => {
+  const o = document.createElement("option"); o.value = `teste:${i}`; o.textContent = f.rotulo; $("grupo-teste").appendChild(o);
+  const b = document.createElement("button"); b.type = "button"; b.title = `${f.rotulo}: foto de ${f.autor} (${f.licenca})`;
+  const im = document.createElement("img"); im.alt = ""; im.src = f.src;
+  const r = document.createElement("span"); r.textContent = f.rotulo;
+  b.append(im, r); b.addEventListener("click", () => usarFotoDeTeste(i));
+  $("fotos-teste").appendChild(b);
+});
+function mostrarSua() { opSua.hidden = !suaFoto; $("rotulo-trocar").firstChild.textContent = suaFoto ? "Trocar foto" : "Escolher foto"; }
+function mostrarFoto(fonte, qual) {
+  definirFoto(fonte);
+  $("previa").classList.remove("sem-foto"); $("previa").classList.add("com-foto");
+  fotoAtual = qual; mostrarSua(); qualFoto.value = qual;
+  const t = /^teste:(\d+)$/.exec(qual), f = t && FOTOS_TESTE[Number(t[1])];
+  $("credito-foto").hidden = !f;
+  $("credito-foto").textContent = f ? `Foto de teste “${f.rotulo}”, de ${f.autor} (Wikimedia Commons, ${f.licenca}).` : "";
+}
+qualFoto.addEventListener("change", () => {
+  const v = qualFoto.value, t = /^teste:(\d+)$/.exec(v);
+  if (v === "cartela") mostrarFoto(cartela(), "cartela");
+  else if (t) usarFotoDeTeste(Number(t[1]));
+  else if (v === "sua" && suaFoto) mostrarFoto(suaFoto, "sua");
+});
+function avisoFoto(texto) { $("camera").className = "camera aviso"; $("camera").textContent = texto; }
+function abrirFoto(arq) {
+  if (!arq) return Promise.resolve();
+  return FotoGuardada.abrir(arq).then((im) => { suaFoto = im; mostrarFoto(im, "sua"); return FotoGuardada.guardar(im); },
+    (e) => avisoFoto(e.message));
+}
+document.querySelectorAll(".abrir-foto").forEach((inp) => inp.addEventListener("change", () => { abrirFoto(inp.files[0]); inp.value = ""; }));
+$("usar-cartela").addEventListener("click", () => mostrarFoto(cartela(), "cartela"));
+// arrastar para qualquer lugar da pagina (sem isso o navegador abriria o arquivo no lugar da pagina):
+// um .flt vira o filtro de partida, como no "Abrir .flt"; o resto e tratado como foto
+const temArquivo = (ev) => [...(ev.dataTransfer?.types || [])].includes("Files");
+document.addEventListener("dragover", (ev) => { if (temArquivo(ev)) { ev.preventDefault(); $("previa").classList.add("arrastando"); } });
+document.addEventListener("dragleave", (ev) => { if (!ev.relatedTarget) $("previa").classList.remove("arrastando"); });
+document.addEventListener("drop", (ev) => {
+  if (!temArquivo(ev)) return;
+  ev.preventDefault(); $("previa").classList.remove("arrastando");
+  if (ir.rodando) return;                                 // a aba Infravermelho esta fazendo o filtro
+  const arq = ev.dataTransfer.files[0];
+  if (arq && /\.bin$/i.test(arq.name)) {                  // firmware: abre no Montar o sistema da camera dele (pelo conteudo)
+    const st = $("status-baixar");
+    st.className = "status erro";
+    st.textContent = `${arq.name} é um firmware. Aqui entram fotos e filtros .flt.`;
+    arq.arrayBuffer().then((b) => {
+      const cam = X10.cameraDoFirmware(new Uint8Array(b)) || (UM ? "1.0" : "2.1"), outra = cam !== (UM ? "1.0" : "2.1");
+      st.textContent = `${arq.name} é um firmware da câmera ${cam}: ele abre no Montar o sistema da ${cam}${SO_CRIADOR ? ", no programa ALT" : outra ? " (no programa: Menu, depois Trocar de câmera)" : ""}. Aqui entram fotos e filtros .flt.`;
+    }, () => { /* sem leitura: fica o aviso geral */ });
+    return;
+  }
+  if (arq && /\.flt$/i.test(arq.name)) abrirFlt(arq); else abrirFoto(arq);
+});
+// colar (Ctrl+V) uma imagem copiada; colar texto no nome do filtro continua normal (o foco num controle nao atrapalha)
+document.addEventListener("paste", (ev) => {
+  if (ev.target.closest && ev.target.closest('input[type="text"], textarea')) return;
+  const item = [...(ev.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (item) { ev.preventDefault(); abrirFoto(item.getAsFile()); }
+});
+// a ultima foto fica guardada (foto.js) e e a mesma do Montar o sistema: se ela trocar la, troca aqui tambem
+async function voltarUltimaFoto() {
+  const im = await FotoGuardada.ler();
+  if (!im || suaFoto) return;                                       // nao passa por cima de uma foto ja escolhida
+  suaFoto = im;
+  if (!foto) return mostrarFoto(im, "sua");
+  mostrarSua();                                                     // a cartela ou uma de teste ja esta na tela: fica nela
+}
+FotoGuardada.aoTrocar(async () => {
+  const im = await FotoGuardada.ler();
+  if (!im) return;
+  suaFoto = im;
+  if (!fotoAtual || fotoAtual === "sua") mostrarFoto(im, "sua");   // com a cartela ou uma de teste na tela, so entra na lista
+  else mostrarSua();
+});
+
+// ---------- zerar e baixar ----------
+$("zerar").addEventListener("click", () => {
+  definirControles({});
+  aero.base = null; mostrarAero();                       // a receita nao leva mais o Aerochrome que foi zerado
+  esconderVoltar();
+  agendar();
+});
+const nomeDoFiltro = () => nomeDeArquivo($("nome").value) || "FILTRO";   // o campo fica como foi digitado (com espacos)
+$("baixar").addEventListener("click", async () => {     // sempre pergunta onde salvar (salvar.js)
+  const st = $("status-baixar");
+  st.className = "status"; st.textContent = "Escolha onde salvar…";
+  const r = await SalvarArquivo.salvar(`${nomeDoFiltro()}.flt`, new Blob([fltParaBaixar()], { type: "text/plain" }));
+  const foi = r.como === "salvo" || r.como === "baixado";
+  if (foi) marcarSalvo();
+  st.className = `status ${r.tipo || ""}`.trim();
+  const paraCamera = SO_CRIADOR ? "Para pôr na câmera, abra o .flt numa posição do Montar o sistema, no programa ALT."
+    : "Para pôr na câmera, use “Usar na roda” ou abra o .flt numa posição do Montar o sistema.";
+  st.textContent = foi ? `${r.texto} ${paraCamera}` : r.texto;
+});
+
+// ---------- usar na roda: manda o filtro para uma posicao do Montar o sistema ----------
+// Os pedidos vao pelo localStorage ("x10-para-roda", um por posicao: mandar F3 e depois F5 antes de abrir o montador
+// leva os dois). O Montar o sistema aplica quando abre, ou na hora se ja estiver aberto, e responde em
+// "x10-roda-recebido". Os nomes dos botoes sao os que a roda tem la agora ("x10-roda-nomes"). A 1.0 usa as mesmas
+// chaves com "-1.0" no fim e as posicoes F1 a F6 do Montar o sistema da 1.0.
+// O nome na tela guarda os espacos ("AERO NOVO"); o do arquivo troca espaco por _ (AERO_NOVO.flt).
+const nomeParaTela = () => ($("nome").value || "").toUpperCase().replace(/\s+/g, " ").trim().slice(0, 20) || nomeDoFiltro();
+const nomePadrao = () => ["NOVO", "FILTRO"].includes(nomeDoFiltro());
+function nomesDaRoda() {
+  try { const n = JSON.parse(localStorage.getItem(daCamera("x10-roda-nomes")) || "null"); return Array.isArray(n) ? n : []; } catch (e) { return []; }
+}
+function montarPosicoes() {
+  const nomes = nomesDaRoda(), caixa = $("posicoes-roda"); caixa.innerHTML = "";
+  for (let p = 1; p <= POSICOES_RODA; p++) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "leve"; b.dataset.pos = p;
+    b.innerHTML = `<strong>F${p}</strong><span></span>`;
+    b.querySelector("span").textContent = nomes[p - 1] || "";
+    b.addEventListener("click", () => usarNaRoda(p));
+    caixa.appendChild(b);
+  }
+  $("com-nome").checked = !nomePadrao();                 // com o nome padrao (NOVO) nao troca o nome da posicao
+  atualizarNomeNaRoda();
+  checarParaRoda();
+}
+// A checagem antes da roda (revisao de 26/10/2026; a proposta de analise_filtros/REVISAO_CONCEITO_E_CRIACAO.md): o
+// ruido, a curva, a matriz, o estouro nas 5 fotos e o nome. Nao impede nada: diz o que olhar antes de gravar.
+function checarParaRoda() {
+  const caixa = $("checagem-roda");
+  if (!caixa || !base) return;
+  const cam = naCamera(montarFlt()), fw = cam.fw, m = X10.medirFiltro({ matriz: fw.matriz, lut: cam.lut }, SENSOR);
+  const num = (x) => String(x).replace(".", ","), itens = [];
+  const teto = m.pb ? 1.4 : 2.2;
+  itens.push(m.ruido <= teto ? ["", `Ruído ${num(m.ruido)}× o da câmera sem filtro: bom.`]
+    : ["aviso", `Ruído ${num(m.ruido)}×: acima do bom (${num(teto)}×). Em pouca luz fica granulado.`]);
+  itens.push(fw.erroMax <= 3 ? ["", fw.erroMax ? `A câmera faz a curva quase igual (até ${fw.erroMax} ${fw.erroMax === 1 ? "nível" : "níveis"}).` : "A câmera faz a curva igual."]
+    : ["aviso", `A câmera faz a curva com até ${fw.erroMax} níveis de diferença: suavize o Contraste, os Pretos, os Brancos ou o Gama.`]);
+  itens.push(!fw.cortados ? ["", "A cor cabe na câmera, sem nada cortado."]
+    : ["aviso", `A cor passa do limite da câmera em ${fw.cortados} de 9 números e é cortada.`]);
+  const e = estouroNasFotos();
+  if (e) {
+    const partes = [e.claro >= 0.5 && `estoura no claro (${pct(e.claro)})`, e.escuro >= 1 && `engole o escuro (${pct(e.escuro)})`, e.chapa >= 3 && `chapa (${pct(e.chapa)})`].filter(Boolean);
+    itens.push(partes.length ? ["aviso", `Nas 5 fotos de teste, ${partes.join(", ")}: veja “Tirar estouro”, abaixo da prévia.`] : ["", "Não estoura nas 5 fotos de teste."]);
+  }
+  if ($("com-nome").checked && !$("com-nome").disabled) {
+    const nome = nomeParaTela(), outras = nomesDaRoda().map((n, i) => [n, i + 1]).filter(([n]) => n && n.toUpperCase() === nome.toUpperCase());
+    if (outras.length) itens.push(["aviso", `${nome} já é o nome do ${outras.map(([, q]) => `F${q}`).join(" e do ")}. Numa outra posição, as duas ficam com o mesmo nome na tela.`]);
+  }
+  caixa.replaceChildren(...itens.map(([c, t]) => { const li = document.createElement("li"); if (c) li.className = c; li.textContent = t; return li; }));
+}
+// nome que a camera nao mostraria (acento, largo demais): a troca do nome fica bloqueada, com o motivo; o filtro vai igual
+function atualizarNomeNaRoda() {
+  const nome = nomeParaTela(), caixa = $("com-nome"), aviso = $("aviso-nome-roda");
+  const problema = window.METRICA_NOMES ? X10.problemaDoNome(nome, window.METRICA_NOMES) : "";
+  $("nome-na-roda").textContent = nome;
+  if (problema) caixa.checked = false;
+  else if (caixa.disabled) caixa.checked = !nomePadrao();  // o nome voltou a caber: volta a marcar
+  caixa.disabled = !!problema;
+  aviso.hidden = !problema;
+  aviso.textContent = problema ? `“${nome}” não vai para a tela: ${problema}. O filtro vai assim mesmo, e o nome da posição fica o de antes.` : "";
+}
+$("usar-na-roda").addEventListener("click", () => {
+  const abrir = $("para-roda").hidden;
+  if (abrir) montarPosicoes();
+  $("para-roda").hidden = !abrir;
+  $("usar-na-roda").setAttribute("aria-expanded", String(abrir));
+});
+$("nome").addEventListener("input", () => { if (!$("para-roda").hidden) atualizarNomeNaRoda(); });
+// a partida mudou o nome (Comecar de, abrir ou soltar um .flt) sem passar pelo "input": o painel aberto acompanha,
+// e volta a marcar a troca do nome so se o novo nao for o padrao (NOVO)
+function nomeTrocadoPorCodigo() {
+  if ($("para-roda").hidden) return;
+  $("com-nome").checked = !nomePadrao();
+  atualizarNomeNaRoda();
+}
+function usarNaRoda(p) {
+  const nome = nomeDoFiltro(), st = $("status-baixar");
+  const pedido = { posicao: p, nome, nomeTela: nomeParaTela(), comNome: $("com-nome").checked && !$("com-nome").disabled,
+    flt: fltParaBaixar(), quando: Date.now() };
+  try {
+    let fila = null;
+    try { fila = JSON.parse(localStorage.getItem(daCamera("x10-para-roda")) || "null"); } catch (e) { fila = null; }
+    if (!fila || fila.posicao) fila = fila && fila.posicao ? { [fila.posicao]: fila } : {};   // formato antigo: um pedido so
+    fila[p] = pedido;
+    localStorage.setItem(daCamera("x10-para-roda"), JSON.stringify(fila));
+  } catch (e) { st.className = "status erro"; st.textContent = "Não consegui mandar para a roda: este navegador não deixa guardar. Use “Baixar .flt”."; return; }
+  $("para-roda").hidden = true; $("usar-na-roda").setAttribute("aria-expanded", "false");
+  marcarSalvo();                                          // o filtro foi para a roda: o trabalho seguiu para o montador
+  st.className = "status ok";
+  if (window.parent !== window) {                       // no programa portatil: o menu troca para o quadro do montador
+    st.textContent = `${nome} foi para o F${p} do Montar o sistema.`;
+    const a = document.createElement("a"); a.href = MONTADOR; document.body.appendChild(a); a.click(); a.remove();
+  } else {
+    st.innerHTML = `${nome} vai para o F${p}. <a href="${MONTADOR}" target="x10-montar${UM ? "-1.0" : ""}">Abra o Montar o sistema da ${UM ? "1.0" : "2.1"}</a>; se ele já estiver aberto em outra aba, a troca já aparece lá.`;
+  }
+}
+// a confirmacao do montador: so entao o criador diz que chegou
+window.addEventListener("storage", (ev) => {
+  if (ev.key !== daCamera("x10-roda-recebido") || !ev.newValue) return;
+  let r = null;
+  try { r = JSON.parse(ev.newValue); } catch (e) { return; }
+  if (!r || !r.recebidos || !r.recebidos.length) return;
+  $("status-baixar").className = "status ok";
+  $("status-baixar").textContent = `Recebido no Montar o sistema: ${r.recebidos.map((x) => `F${x.posicao} ${x.nome}`).join(", ")}.`;
+});
+// o cabecalho cresce com o aviso e com o painel "Usar na roda": a previa gruda logo abaixo dele, sem ficar escondida
+// a janela mudou de tamanho (tela cheia, outro monitor): refaz a previa na resolucao nova, se mudou bastante
+let refazerPrevia = null;
+new ResizeObserver(() => {
+  clearTimeout(refazerPrevia);
+  refazerPrevia = setTimeout(() => {
+    if (fonteDaFoto && Math.abs(larguraDaPrevia(fonteDaFoto) - tela.width) > tela.width * 0.15) definirFoto(fonteDaFoto);
+  }, 250);
+}).observe(document.querySelector(".tela"));
+new ResizeObserver(([e]) => document.documentElement.style.setProperty("--topo-previa", `${Math.ceil(e.target.getBoundingClientRect().height)}px`))
+  .observe(document.querySelector("header.barra"));
+
+// ---------- abas: Ajustes, Infravermelho e Aerochrome ----------
+// Pedidos de 24/10/2026: "torne possivel, no criador, fazer filtros aero como esse" e "aba infravermelho e aba
+// aerochrome". O Infravermelho faz o filtro pelas cores, como filtros/IR_CRIADOR/gerar.js: voce escolhe a cor que
+// cada coisa ganha, e a pagina procura os controles que chegam mais perto. O Aerochrome faz do jeito dos primeiros
+// AERORED: mexe direto na matriz do AERORED. Os dois deixam o filtro nos Ajustes, para continuar mexendo.
+const ABAS = ["ajustes", "ir"];
+function mostrarAba(k) {
+  for (const o of ABAS) {
+    const b = document.querySelector(`#abas [data-aba="${o}"]`);
+    b.setAttribute("aria-selected", String(o === k)); b.tabIndex = o === k ? 0 : -1;
+    $(`aba-${o}`).hidden = o !== k;
+  }
+}
+document.querySelectorAll("#abas [data-aba]").forEach((b, i, todas) => {
+  b.addEventListener("click", () => mostrarAba(b.dataset.aba));
+  b.addEventListener("keydown", (ev) => {                 // as setas trocam de aba
+    const d = ev.key === "ArrowRight" ? 1 : ev.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    ev.preventDefault();
+    const n = todas[(i + d + todas.length) % todas.length];
+    n.focus(); mostrarAba(n.dataset.aba);
+  });
+});
+// O filtro inteiro como esta agora (partida, controles, Cor por cor, nome, "Comecar de"), para o "Voltar ao filtro de antes"
+function guardarEstado() {
+  return { base: base && { ...base, matriz: base.matriz.slice(), curvas: base.curvas.map((c) => c.slice()) },
+    site: siteAtivo ? Object.fromEntries(Object.entries(SITE).map(([k, s]) => [s, entradas[k].padrao])) : null,
+    graoPadrao: entradas.grao.padrao, A: JSON.parse(JSON.stringify(A)), corAtual, nome: $("nome").value, sel: sel.value,
+    status: { classe: $("status-base").className, texto: $("status-base").textContent },
+    aero: aero.base === base ? { versao: aero.versao, valores: { ...aero.valores } } : null };
+}
+function voltarEstado(e) {
+  usarBase(e.base, "", e.site);
+  entradas.grao.padrao = e.graoPadrao;
+  for (const [k, en] of Object.entries(entradas)) { A[k] = e.A[k]; en.r.value = A[k]; en.mostrar(); }
+  A.pb = e.A.pb; $("pb").checked = A.pb; ligarMistura();
+  A.troca = e.A.troca; $("troca").value = A.troca;
+  A.virar = e.A.virar; A.sombraCor = e.A.sombraCor; A.luzCor = e.A.luzCor; mostrarTons();
+  A.porCor = e.A.porCor; sessao = null; avisoCor = ""; corAtual = e.corAtual; mostrarCor();
+  $("nome").value = e.nome; nomeTrocadoPorCodigo();
+  sel.value = e.sel;
+  $("status-base").className = e.status.classe; $("status-base").textContent = e.status.texto;
+  if (e.aero) { aero.base = base; aero.versao = e.aero.versao; Object.assign(aero.valores, e.aero.valores); } else aero.base = null;
+  mostrarAero();
+  agendar();
+}
+
+// ---------- aba Infravermelho ----------
+// As 6 coisas que o filtro olha (as amostras do doc "Cores em filmes infravermelhos", na cor normal) e o peso de cada uma
+const IR_COISAS = [["folhagem", "Folhagem", "#3E8E3A", 2], ["grama", "Grama", "#6BAA3A", 1.5], ["ceu", "Céu", "#6FA8DC", 2],
+  ["agua", "Água", "#3D7FB5", 1], ["vermelho", "Vermelho", "#C0392B", 1.5], ["pele", "Pele", "#E0AC8A", 1.5]];
+// Os 6 estilos de filtros/IR_CRIADOR (24/10/2026): as cores pedidas, na ordem de IR_COISAS, e o ruido maximo
+const IR_FILAS = [["carmim", "Folhagem carmim"], ["laranja", "Folhagem laranja"]];
+const IR_ESTILOS = [
+  { chave: "aero", nome: "AERO", rotulo: "Aero", jeito: "clássico", fila: "carmim", ruido: 2.2, alvo: ["#D61F4E", "#E85A8A", "#1E3F8A", "#0B1A40", "#E3C02E", "#D3CF98"] },
+  { chave: "rosa", nome: "ROSA", rotulo: "Rosa", jeito: "suave", fila: "carmim", ruido: 1.8, alvo: ["#D85A78", "#EC93B0", "#3E5E9E", "#1E2F5A", "#E6B84A", "#E2CDA6"] },
+  { chave: "magenta", nome: "MAGENTA", rotulo: "Magenta", jeito: "forte", fila: "carmim", ruido: 2.6, alvo: ["#C8287F", "#E66AB0", "#1A2D7A", "#0B1438", "#F0C838", "#E2D0A0"] },
+  { chave: "laranja", nome: "LARANJA", rotulo: "Laranja", jeito: "clássico", fila: "laranja", ruido: 2.2, alvo: ["#E06A1C", "#F09A3E", "#1E3F8A", "#0B1A40", "#E8C832", "#D8D29C"] },
+  { chave: "pessego", nome: "PESSEGO", rotulo: "Pêssego", jeito: "suave", fila: "laranja", ruido: 1.8, alvo: ["#E08A4A", "#F0B676", "#3E5E9E", "#1E2F5A", "#E8C45A", "#E2D2AA"] },
+  { chave: "ambar", nome: "AMBAR", rotulo: "Âmbar", jeito: "forte", fila: "laranja", ruido: 2.6, alvo: ["#C8501A", "#E0822E", "#142A6E", "#08122E", "#F2D030", "#DCCC94"] },
+];
+const irAlvo = {}, irSai = {}, irPerto = {}, botoesEstilo = {};
+for (const [chaveFila, rotuloFila] of IR_FILAS) {
+  const fila = document.createElement("div"), tres = document.createElement("div");
+  fila.className = "fila"; tres.className = "tres";
+  fila.innerHTML = `<span>${rotuloFila}</span>`;
+  for (const e of IR_ESTILOS.filter((x) => x.fila === chaveFila)) {
+    const b = document.createElement("button");
+    b.type = "button"; b.dataset.estilo = e.chave; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<span class="tiras">${[0, 2, 4].map((i) => `<span style="background:${e.alvo[i]}"></span>`).join("")}</span><span>${e.rotulo}</span><small>${e.jeito}</small>`;
+    b.addEventListener("click", () => escolherEstilo(e.chave));
+    tres.appendChild(b);
+    botoesEstilo[e.chave] = b;
+  }
+  fila.appendChild(tres);
+  $("ir-estilos").appendChild(fila);
+}
+for (const [k, rotulo, normal] of IR_COISAS) {
+  const linha = document.createElement("div");
+  linha.innerHTML = `<span class="rotulo">${rotulo}</span><span class="amostra-cor" style="background:${normal}" title="${rotulo} na foto, sem filtro"></span>`
+    + `<input type="color" data-alvo="${k}" aria-label="${rotulo}: a cor que você quer"><span class="amostra-cor vazia" data-sai="${k}" title="${rotulo} na câmera, com o filtro"></span><span class="perto" data-perto="${k}"></span>`;
+  irAlvo[k] = linha.querySelector("input"); irSai[k] = linha.querySelector("[data-sai]"); irPerto[k] = linha.querySelector("[data-perto]");
+  irAlvo[k].addEventListener("input", () => { marcarEstilo(); limparResultadoIR(); });
+  $("ir-cores").appendChild(linha);
+}
+const irRuido = $("c-irRuido"), irRuidoValor = irRuido.nextElementSibling;
+const mostrarRuidoIR = () => { irRuidoValor.value = `${Number(irRuido.value).toFixed(1).replace(".", ",")}×`; };
+irRuido.addEventListener("input", mostrarRuidoIR);
+numeroDigitavel(irRuido, irRuidoValor, mostrarRuidoIR); barraComShift(irRuido);
+// o estilo marcado e o que tem exatamente as cores de agora (mudou uma cor: nenhum)
+const estiloDasCores = () => IR_ESTILOS.find((e) => IR_COISAS.every(([k], i) => irAlvo[k].value.toLowerCase() === e.alvo[i].toLowerCase()));
+function marcarEstilo() {
+  const e = estiloDasCores();
+  for (const [k, b] of Object.entries(botoesEstilo)) b.setAttribute("aria-pressed", String(!!e && e.chave === k));
+}
+function escolherEstilo(chave) {
+  const e = IR_ESTILOS.find((x) => x.chave === chave);
+  IR_COISAS.forEach(([k], i) => { irAlvo[k].value = e.alvo[i].toLowerCase(); });
+  irRuido.value = e.ruido; mostrarRuidoIR();
+  marcarEstilo(); limparResultadoIR();
+}
+function limparResultadoIR() {
+  for (const [k] of IR_COISAS) { irSai[k].style.background = ""; irSai[k].classList.add("vazia"); irPerto[k].textContent = ""; }
+}
+// a cor que a camera da para cada coisa, e o quanto ela fica da pedida (ΔE em OKLab x100: ate 3 quase nao se ve)
+function mostrarResultadoIR() {
+  const cam = naCamera(montarFlt());
+  for (const [k, , normal] of IR_COISAS) {
+    const sai = cam.cor(hexParaRgb(normal)), a = oklab(sai), b = oklab(hexParaRgb(irAlvo[k].value));
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * 100;
+    irSai[k].style.background = css(sai); irSai[k].classList.remove("vazia");
+    irPerto[k].textContent = d < 3 ? "quase igual" : d < 8 ? "perto" : "longe";
+  }
+}
+// A conta (a mesma do gerar.js): o filtro novo com a troca vermelho <-> verde, a Cor por cor (6 numeros, o cinza
+// continua cinza) e os 8 controles do Tom e dos Canais, pelo Levenberg-Marquardt, com o que a camera nao deixa como
+// penalidade: o cinza com cor, a matriz da camera alem de ±3,6, as cores comuns que chapam e o ruido acima do maximo.
+// Dois caminhos (o teto do ruido apertado desde o comeco, e apertando aos poucos) com as curvas cruas, que mudam suave e
+// guiam a busca; fica o melhor que respeita o teto, e o acabamento e feito com as 8 retas da camera.
+const ir = { rodando: false, parar: false, antes: null, promessa: null };
+const IR_NEUTROS = [20, 70, 128, 190, 240].map((g) => telaParaLinear([g / 255, g / 255, g / 255]));
+const IR_SONDAS = [...[0, 30, 60, 120, 180, 210, 240, 300].map((h) => hsv(h, 0.55, 0.75)),
+  ...[[224, 172, 140], [198, 134, 102], [141, 85, 56], [90, 140, 210], [150, 190, 235]].map((c) => c.map((v) => v / 255))].map(telaParaLinear);
+const IR_TOM = ["brilho", "contraste", "pretos", "brancos", "meios", "gamaR", "gamaG", "gamaB"];
+function travarIR(sim) {
+  $("abas").inert = sim; document.querySelector("header.barra").inert = sim; $("ir-controles").inert = sim; $("aba-aero").inert = sim;
+  $("ir-parar").hidden = !sim; $("ir-progresso").hidden = !sim;
+  if (sim) { $("ir-continuar").hidden = true; $("ir-desfazer").hidden = true; }
+}
+async function lmComPausa(residuos, p0, iteracoes, passos, aoPassar) {
+  const custo = (r) => r.reduce((a, b) => a + b * b, 0);
+  let p = p0.slice(), r = residuos(p), c0 = custo(r), lambda = 1e-2;
+  for (let it = 0; it < iteracoes && !ir.parar; it++) {
+    const J = p.map((_, k) => { const q = p.slice(); q[k] += passos[k]; const rq = residuos(q); return rq.map((v, j) => (v - r[j]) / passos[k]); });
+    const JtJ = J.map((a) => J.map((b) => a.reduce((s, v, j) => s + v * b[j], 0))), Jtr = J.map((a) => a.reduce((s, v, j) => s + v * r[j], 0));
+    let ok = false;
+    for (let t = 0; t < 10 && !ok; t++) {
+      const d = resolverSistema(JtJ.map((l, a) => l.map((v, b) => v + (a === b ? lambda * (1 + v) : 0))), Jtr.map((v) => -v));
+      const q = p.map((v, k) => v + d[k]), rq = residuos(q), cq = custo(rq);
+      if (cq < c0) { p = q; r = rq; c0 = cq; lambda = Math.max(1e-7, lambda / 3); ok = true; } else lambda *= 4;
+    }
+    await aoPassar(p, it + 1);
+    if (!ok) break;
+  }
+  return p;
+}
+function fazerInfravermelho() {
+  if (ir.rodando) return ir.promessa;
+  ir.promessa = (async () => {
+    const estilo = estiloDasCores(), teto = Number(irRuido.value), S = SENSOR.map((v) => v / 1024);
+    const alvos = IR_COISAS.map(([k, , normal, peso]) => ({ lin: telaParaLinear(hexParaRgb(normal)), lab: oklab(hexParaRgb(irAlvo[k].value)), peso }));
+    ir.antes = guardarEstado(); ir.rodando = true; ir.parar = false;
+    travarIR(true); limparResultadoIR();
+    $("ir-status").className = "status"; $("ir-status").textContent = "Procurando o filtro… 0%"; $("ir-progresso").value = 0;
+    usarBase(NEUTRO, "um filtro novo, com o infravermelho da aba Infravermelho"); sel.value = "novo";
+    A.troca = "rg"; $("troca").value = "rg";
+    const look0 = lookDoFiltro(true), matrizH = matrizPerpendicular(IDENT, [0, 1, 2].map((r) => look0[3 * r] + look0[3 * r + 1] + look0[3 * r + 2]));
+    A.porCor = { H: IDENT.slice(), mexidas: [], pedidos: {} };
+    const tom = (p, arredondar) => Object.fromEntries(IR_TOM.map((k, i) => {
+      const e = entradas[k], a = Number(e.r.min), b = Number(e.r.max), passo = Number(e.r.step);
+      let v = Math.min(b, Math.max(a, e.padrao + p[6 + i] * (b - a) / 4));
+      if (arredondar) v = Math.round(v / passo) * passo;
+      return [k, Math.round(v * 100) / 100];
+    }));
+    // as 8 retas da camera so dependem das curvas: guardadas por curva (as 6 colunas da Cor por cor repetem a mesma)
+    const exatas = new Map();
+    const curvasDe = (exato) => {
+      const c = montarFlt(true).curvas;
+      if (!exato) return c;
+      const chave = c.map((l) => l.join()).join("|");
+      if (!exatas.has(chave)) { if (exatas.size > 64) exatas.clear(); exatas.set(chave, X10.segmentosParaLut(X10.lutParaSegmentos(c).seg)); }
+      return exatas.get(chave);
+    };
+    const residuos = (p, exato, pesoRuido) => {
+      Object.assign(A, tom(p, false));
+      const curvas = curvasDe(exato), L = mul3(matrizH(p), look0), r = [];
+      const sai = (l) => [0, 1, 2].map((c) => canal(L, curvas, c, l[0], l[1], l[2]) / 255);
+      for (const e of alvos) { const a = oklab(sai(e.lin)); for (let j = 0; j < 3; j++) r.push(e.peso * 100 * (a[j] - e.lab[j])); }
+      for (const l of IR_NEUTROS) { const a = oklab(sai(l)); r.push(200 * a[1], 200 * a[2]); }
+      const naCam = mul3(L, S);
+      for (const v of naCam) r.push(100 * Math.max(0, Math.abs(v) - 3.6));
+      for (const l of IR_SONDAS) for (let k = 0; k < 3; k++) {
+        const v = L[3 * k] * l[0] + L[3 * k + 1] * l[1] + L[3 * k + 2] * l[2];
+        r.push(0.02 * (Math.max(0, -v) + Math.max(0, v - 1023)));
+      }
+      const m = X10.medirFiltro({ matriz: naCam.map((v) => Math.round(v * 1024)), lut: curvas }, SENSOR);
+      r.push(pesoRuido * Math.max(0, m.ruido - (teto - 0.05)));
+      return r;
+    };
+    // devolve a vez a pagina a cada ~40 ms: a previa mostra o melhor ate agora, e o Parar responde
+    let desde = performance.now(), ultimaPrevia = 0;
+    const provisorio = (p) => { Object.assign(A, tom(p, false)); A.porCor.H = matrizH(p); };
+    const etapa = (de, ate, total) => async (p, it) => {
+      if (performance.now() - desde < 40) return;
+      const pct = Math.round(100 * (de + (ate - de) * Math.min(1, it / total)));
+      $("ir-progresso").value = pct; $("ir-status").textContent = `Procurando o filtro… ${pct}%`;
+      provisorio(p);
+      if (performance.now() - ultimaPrevia > 300) { ultimaPrevia = performance.now(); agendar(); }
+      await new Promise((ok) => setTimeout(ok, 0));
+      desde = performance.now();
+    };
+    const passos = [...new Array(6).fill(1e-4), ...new Array(IR_TOM.length).fill(0.03)], zero = new Array(6 + IR_TOM.length).fill(0);
+    let p = zero;
+    try {
+      let um = await lmComPausa((q) => residuos(q, false, 2000), zero, 150, passos, etapa(0, 0.08, 150));
+      p = um;
+      const meio = await lmComPausa((q) => residuos(q, false, 100), zero, 150, passos, etapa(0.08, 0.14, 150));
+      let dois = await lmComPausa((q) => residuos(q, false, 2000), meio, 80, passos, etapa(0.14, 0.2, 80));
+      um = p = await lmComPausa((x) => residuos(x, true, 2000), um, 40, passos, etapa(0.2, 0.6, 40));
+      dois = await lmComPausa((x) => residuos(x, true, 2000), dois, 40, passos, etapa(0.6, 1, 40));
+      // o melhor dos dois com as 8 retas da camera: primeiro o que fica abaixo do teto do ruido, depois o mais perto
+      const nota = (q) => {
+        const r = residuos(q, true, 0), L = mul3(matrizH(q), look0);
+        const ruido = X10.medirFiltro({ matriz: mul3(L, S).map((v) => Math.round(v * 1024)), lut: curvasDe(true) }, SENSOR).ruido;
+        return { fora: ruido > teto + 0.02, ruido, custo: r.reduce((x, y) => x + y * y, 0) };
+      };
+      const [n1, n2] = [um, dois].map(nota);
+      p = (n1.fora - n2.fora || (n1.fora ? n1.ruido - n2.ruido : n1.custo - n2.custo)) <= 0 ? um : dois;
+    } finally {
+      // os controles nos passos das barras, a troca e a Cor por cor: o filtro fica nos Ajustes, inteiro
+      definirControles(tom(p, true));
+      A.troca = "rg"; $("troca").value = "rg";
+      A.porCor = { H: matrizH(p), mexidas: [], pedidos: {} }; sessao = null; avisoCor = ""; mostrarCor();
+      $("nome").value = estilo ? estilo.nome : "INFRA"; nomeTrocadoPorCodigo();
+      $("status-base").className = "status ok"; $("status-base").textContent = "Partindo de um filtro novo, com o infravermelho da aba Infravermelho.";
+      ir.rodando = false; travarIR(false);
+      $("ir-continuar").hidden = false; $("ir-desfazer").hidden = false;
+      $("ir-status").className = "status ok";
+      $("ir-status").textContent = ir.parar ? "Parado antes do fim: ficou o melhor filtro achado até ali. Ele está nos Ajustes, com os controles nos lugares."
+        : "Pronto. O filtro está nos Ajustes, com os controles nos lugares, e a Cor por cor mostra onde cada cor ficou.";
+      mostrarResultadoIR();
+      agendar();
+    }
+  })();
+  return ir.promessa;
+}
+$("ir-fazer").addEventListener("click", () => { fazerInfravermelho(); });
+$("ir-parar").addEventListener("click", () => { ir.parar = true; });
+$("ir-continuar").addEventListener("click", () => mostrarAba("ajustes"));
+$("ir-desfazer").addEventListener("click", () => {
+  if (!ir.antes) return;
+  voltarEstado(ir.antes); ir.antes = null;
+  $("ir-continuar").hidden = true; $("ir-desfazer").hidden = true; limparResultadoIR();
+  $("ir-status").className = "status"; $("ir-status").textContent = "Voltou ao filtro de antes.";
+});
+escolherEstilo("aero");
+
+// ---------- aba Aerochrome ----------
+// Do jeito dos primeiros AERORED (pedido de 24/10/2026: "Aerored, mas laranja no lugar do vermelho, azul menos
+// saturado"): o AERORED da roda como partida (filtros/V2/F3_AERORED.flt, o F1 INFRARED da roda V3) e a folhagem e o
+// ceu mexidos pela Cor por cor. A matriz e a que gira a folhagem e tira a forca do ceu, segurando o vermelho, a pele, o
+// laranja, o amarelo, os roxos e o marrom onde o AERORED os deixa (o cinza a Cor por cor nunca mexe). As amostras sao
+// coisas de verdade, nao as 8 fichas: o ceu fica entre a Agua e o Azul, e as duas fichas sozinhas o deixavam bege.
+const AERORED = { nome: "AERORED", grao: 0, matriz: [418,754,-584,647,-37,8,437,-26,95],
+  curvas: [
+    [38,39,40,41,43,44,45,46,47,48,50,51,52,53,54,55,56,58,59,60,61,62,63,65,66,67,68,69,70,72,73,74,75,77,78,80,81,83,84,86,87,89,90,92,93,95,96,98,100,101,103,104,106,107,109,110,112,113,115,116,118,119,121,122,124,126,127,129,130,132,133,135,136,138,139,141,142,144,145,147,148,150,152,153,155,156,158,159,161,162,164,165,167,168,170,171,173,174,176,177,178,180,181,182,184,185,186,187,189,190,191,193,194,195,197,198,199,201,202,203,204,206,207,208,210,211,212,214,215,216,217,218,218,219,220,221,222,223,224,225,226,226,227,228,229,230,231,232,232,233,234,235,236,237,238,239,240,240,241,242,243,243,243,244,244,244,244,244,244,245,245,245,245,245,246,246,246,246,246,247,247,247,247,247,248,248,248,248,248,248,249,249,249,249,249,249,250,250,250,250,250,250,250,250,250,251,251,251,251,251,251,251,252,252,252,252,252,252,252,252,252,253,253,253,253,253,253,253,253,253,253,253,253,253,253,253,253,253,253,253,254,254,254,254,254,254,254,254,254,254,254,254,254,254,254,254],
+    [34,35,36,37,37,38,39,40,41,42,42,43,44,45,46,47,48,48,49,50,51,52,53,53,54,55,56,57,58,58,59,60,61,62,64,65,66,68,69,70,72,73,74,75,77,78,79,81,82,83,85,86,87,89,90,91,92,94,95,96,98,99,100,102,103,104,106,108,109,110,112,114,115,116,118,120,121,122,124,126,127,128,130,132,133,134,136,138,139,140,142,144,145,146,148,150,151,152,154,155,157,158,160,161,162,164,165,167,168,170,171,173,174,175,177,178,180,181,183,184,186,187,188,190,191,193,194,196,197,198,199,201,202,203,204,206,207,208,209,210,212,213,214,215,216,218,219,220,221,223,224,225,226,227,229,230,231,232,234,235,236,236,237,237,237,238,238,238,238,239,239,239,240,240,240,241,241,241,242,242,242,243,243,243,244,244,244,244,245,245,245,246,246,246,246,247,247,247,247,247,248,248,248,248,248,248,249,249,249,249,249,250,250,250,250,250,250,251,251,251,251,251,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252,252],
+    [45,46,46,47,48,49,50,50,51,52,52,53,54,55,56,56,57,58,58,59,60,61,62,62,63,64,64,65,66,67,68,68,69,70,71,73,74,75,76,78,79,80,81,82,84,85,86,87,88,90,91,92,93,95,96,97,98,99,101,102,103,104,106,107,108,109,111,112,114,115,116,118,119,120,122,123,124,126,127,129,130,131,133,134,136,137,138,140,141,142,144,145,146,148,149,151,152,153,155,156,157,159,160,161,162,164,165,166,168,169,170,172,173,174,176,177,178,180,181,182,184,185,186,187,189,190,191,193,194,195,196,197,198,199,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,224,225,226,226,227,227,228,228,229,229,230,230,231,231,232,232,233,233,234,234,234,235,235,236,236,237,237,238,238,239,239,240,240,241,241,241,242,242,242,242,243,243,243,244,244,244,244,245,245,245,246,246,246,246,247,247,247,247,248,248,248,249,249,249,249,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250,250]] };
+const AERO_FOLHA = ["#3E8E3A", "#6BAA3A", "#2F5F2A", "#8FC46A", "#A8B848"];               // folhagem, grama, mata, broto, capim
+const AERO_CEU = ["#6FA8DC", "#3D7FB5", "#A8CBEA", "#2F5FB0"];                            // ceu, agua, ceu claro, ceu fundo
+const AERO_FICA = ["#C0392B", "#E0AC8A", "#8D5524", "#E08A2E", "#E6CF3A", "#7D3C98", "#C0408A", "#6B4A2E"];
+// As versoes: o AERORED e as 4 laranja (feitas a mao, olhando as fotos de teste). tiras = folhagem, ceu e vermelho na camera
+const AERO_VERSOES = [
+  { chave: "aerored", nome: "AERORED", rotulo: "AERORED", jeito: "o da roda", folhaH: 0, folhaS: 0, ceuH: 0, ceuS: 0, tiras: ["#C73E41", "#267B91", "#D7E3BE"] },
+  { chave: "lar1", nome: "AEROLAR1", rotulo: "Laranja 1", jeito: "clássico", folhaH: 35, folhaS: 0, ceuH: 10, ceuS: -60, tiras: ["#B45E33", "#4D7076", "#CBDAD0"] },
+  { chave: "lar2", nome: "AEROLAR2", rotulo: "Laranja 2", jeito: "vivo", folhaH: 30, folhaS: 20, ceuH: 15, ceuS: -65, tiras: ["#BD552D", "#577277", "#BDDDD5"] },
+  { chave: "lar3", nome: "AEROLAR3", rotulo: "Laranja 3", jeito: "suave", folhaH: 35, folhaS: -20, ceuH: 15, ceuS: -80, tiras: ["#B46740", "#496565", "#CCD9CF"] },
+  { chave: "lar4", nome: "AEROLAR4", rotulo: "Laranja 4", jeito: "dourado", folhaH: 50, folhaS: 10, ceuH: 15, ceuS: -65, tiras: ["#995F30", "#5E797B", "#DAD7D1"] },
+];
+const AERO_CONTROLES = [["folhaH", "Cor", -30, 60, "aero-folha", "− rosa · + laranja e amarelo"], ["folhaS", "Força", -60, 60, "aero-folha", "− apagada · + viva"],
+  ["ceuH", "Cor", -30, 30, "aero-ceu", "− verde · + azul"], ["ceuS", "Força", -90, 30, "aero-ceu", "− apagado · + vivo"]];
+const aero = { base: null, antes: null, valores: { folhaH: 0, folhaS: 0, ceuH: 0, ceuS: 0 }, versao: "aerored" };
+const barrasAero = {}, botoesAero = {};
+{
+  const tres = document.createElement("div");
+  tres.className = "tres";
+  for (const v of AERO_VERSOES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.dataset.aero = v.chave; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<span class="tiras">${v.tiras.map((c) => `<span style="background:${c}"></span>`).join("")}</span><span>${v.rotulo}</span><small>${v.jeito}</small>`;
+    b.addEventListener("click", () => usarVersaoAero(v.chave));
+    tres.appendChild(b);
+    botoesAero[v.chave] = b;
+  }
+  $("aero-estilos").appendChild(tres);
+}
+for (const [k, rotulo, min, max, caixa, ajuda] of AERO_CONTROLES) {
+  const linha = document.createElement("div"), id = `c-aero${k.charAt(0).toUpperCase()}${k.slice(1)}`, sufixo = k.endsWith("H") ? "°" : "%";
+  linha.className = "controle";
+  linha.innerHTML = `<label for="${id}">${rotulo}</label><input type="range" id="${id}" min="${min}" max="${max}" step="1" value="0" title="${ajuda}. Dois cliques voltam ao valor da versão. Arraste com Shift para ir devagar."><input type="text" class="valor" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${caixa === "aero-folha" ? "Folhagem" : "Céu"}, ${rotulo.toLowerCase()}: valor"><span></span>`;
+  const r = linha.querySelector("input[type=range]"), o = linha.querySelector(".valor");
+  const mostrar = () => { o.value = sinal(Number(r.value)) + sufixo; };
+  r.addEventListener("input", () => { mostrar(); mexerNoAero({ [k]: Number(r.value) }); });
+  r.addEventListener("dblclick", () => { r.value = (AERO_VERSOES.find((v) => v.chave === aero.versao) || AERO_VERSOES[0])[k]; r.dispatchEvent(new Event("input")); });
+  numeroDigitavel(r, o, mostrar); barraComShift(r);
+  barrasAero[k] = { r, mostrar };
+  mostrar();
+  $(caixa).appendChild(linha);
+}
+function mostrarAero() {
+  for (const [k, b] of Object.entries(barrasAero)) { b.r.value = aero.valores[k]; b.mostrar(); }
+  const v = AERO_VERSOES.find((x) => Object.keys(aero.valores).every((k) => x[k] === aero.valores[k]));
+  for (const [k, b] of Object.entries(botoesAero)) b.setAttribute("aria-pressed", String(aero.base === base && !!v && v.chave === k));
+}
+// A Cor por cor da folhagem e do ceu: gira e muda a forca de cada grupo, e o resto fica onde o filtro sem ela deixa
+function porCorDoAero(valores) {
+  const grupos = [[AERO_FOLHA, valores.folhaH, valores.folhaS, [3, 10, 10]], [AERO_CEU, valores.ceuH, valores.ceuS, [3, 25, 25]], [AERO_FICA, 0, 0, [1, 1, 1]]];
+  const lista = grupos.flatMap(([cores, h, s, pesos]) => cores.map((c) => ({ rgb: hexParaRgb(c), h, s, pesos })));
+  // as cores presas na Cor por cor continuam presas (revisao de 26/10/2026: antes, mexer na aba as apagava sem avisar),
+  // com peso maior que o das amostras da aba, que puxam para o outro lado (o vermelho "fica" no AERORED)
+  for (const k of presas()) { const i = CORES.findIndex((c) => c[0] === k), p = A.porCor.pedidos[k]; lista.push({ rgb: AMOSTRAS[i], h: p.h, s: p.s, pesos: [20, 100, 100] }); }
+  const ctx = comIntensidadeCheia(() => contextoDaCor(lista.map((x) => x.rgb)));
+  return resolverCores(ctx, IDENT, lista.map((x, i) => ({ i, lab: ctx.pedidoSemCorte(i, corPedida(ctx.antes[i], x.h, x.s)), pesos: x.pesos })));
+}
+// O filtro de agora nao veio desta aba (outra partida, outro .flt, o Infravermelho): a aba poe o AERORED, sem os
+// ajustes de antes, e guarda o filtro de antes para o "Voltar"
+function partirDoAero() {
+  if (aero.base !== base) aero.antes = guardarEstado();
+  usarBase(AERORED, "o AERORED da roda, na aba Aerochrome");
+  opPartida.textContent = "Partindo de: AERORED (aba Aerochrome)"; sel.value = "partida";
+  aero.base = base;
+}
+function aplicarAero() {
+  const ps = presas(), pedidos = Object.fromEntries(ps.map((k) => [k, A.porCor.pedidos[k]]));
+  A.porCor = { H: porCorDoAero(aero.valores), mexidas: ps, pedidos }; sessao = null; avisoCor = ""; mostrarCor();
+  mostrarAero();
+  $("aero-continuar").hidden = false; $("aero-desfazer").hidden = !aero.antes;
+  $("aero-status").className = "status ok";
+  $("aero-status").textContent = "O filtro está nos Ajustes: a partida é o AERORED, e a folhagem e o céu estão na Cor por cor.";
+  agendar();
+}
+function usarVersaoAero(chave) {
+  const v = AERO_VERSOES.find((x) => x.chave === chave);
+  partirDoAero();
+  aero.versao = chave;
+  for (const k of Object.keys(aero.valores)) aero.valores[k] = v[k];
+  $("nome").value = v.nome; nomeTrocadoPorCodigo();
+  aplicarAero();
+}
+function mexerNoAero(mudou) {
+  if (aero.base !== base) {                               // primeira mexida: parte da versao escolhida
+    const v = AERO_VERSOES.find((x) => x.chave === aero.versao);
+    partirDoAero();
+    for (const k of Object.keys(aero.valores)) aero.valores[k] = v[k];
+    $("nome").value = v.nome; nomeTrocadoPorCodigo();
+  }
+  Object.assign(aero.valores, mudou);
+  aplicarAero();
+}
+$("aero-continuar").addEventListener("click", () => mostrarAba("ajustes"));
+$("aero-desfazer").addEventListener("click", () => {
+  if (!aero.antes) return;
+  voltarEstado(aero.antes); aero.antes = null; aero.base = null;
+  $("aero-continuar").hidden = true; $("aero-desfazer").hidden = true; mostrarAero();
+  $("aero-status").className = "status"; $("aero-status").textContent = "Voltou ao filtro de antes.";
+});
+// a receita leva os controles da aba quando o filtro veio dela: reabrir o .flt traz a aba como estava
+const receitaDoAero = () => (aero.base === base ? { versao: 1, de: aero.versao, ...aero.valores } : null);
+function aeroDaReceita(r) {
+  const a = r && r.aero;
+  if (!a || typeof a !== "object" || a.versao !== 1 || !AERO_CONTROLES.every(([k]) => Number.isFinite(a[k]))) return;
+  aero.base = base; aero.antes = null;
+  aero.versao = AERO_VERSOES.some((v) => v.chave === a.de) ? a.de : "aerored";
+  for (const [k, , min, max] of AERO_CONTROLES) aero.valores[k] = Math.min(max, Math.max(min, Math.round(a[k])));
+  mostrarAero();
+}
+mostrarAero();
+
+
+// ---------- tirar o estouro (revisao de 26/10/2026; a conta que era so do _scripts/tirar_estouro.js) ----------
+// Tira o estouro mudando o minimo nos controles. Os tres jeitos de perder detalhe sao os do guia
+// (analise_filtros/ESTOURO.md), e so conta o que o filtro causa:
+//   - estoura no claro: um canal chega ao maximo numa cor que nao estava;
+//   - engole o escuro: os 3 canais a quase 0 numa cor que nao era quase preta;
+//   - chapa: um canal passa de 0 ou de 1023 antes da curva (a cor continua la, mas fica lisa).
+// Em duas etapas:
+//   1. claro e escuro: o peso deles sobe aos poucos ate as 5 fotos de teste ficarem dentro dos limites do guia (menos
+//      de 0,5% e de 1% de cada foto, com margem);
+//   2. chapa: o peso sobe aos poucos, mas so enquanto a cor muda pouco (ΔE medio ate 1,5 e o pior 1% ate 8, contra a
+//      etapa 1) e o claro, o escuro e o ruido nao pioram. Num ceu azul fundo de infravermelho, tirar a chapa deixava o
+//      ceu roxo: ai a chapa fica, e o resultado diz.
+// A cor e medida em OKLab, com o matiz pesando 3 vezes mais. Tambem nao deixa o ruido subir nem passar da matriz da
+// camera. Os controles: a Cor por cor (6 numeros, o cinza fica cinza), um ganho por canal, o Tom, os Canais e, num filtro
+// do JL Camera Tool, os do site. As contas usam 2.000 pixels das fotos, os cinzas e uma cartela; a conferencia, 20.000
+// (4.000 por foto), e os que ainda estouram entram na conta da forca seguinte. "pausa" (opcional, async) e chamada a cada
+// passo da busca: a pagina devolve a vez e pode parar; o _scripts/tirar_estouro.js chama sem ela (o mesmo resultado).
+const ESTOURO = { forcas: [0.15, 0.25, 0.4, 0.6, 1, 1.6, 2.5, 4, 6, 10, 16],
+  limites: { claro: 0.4, escuro: 0.8, chapa: 3 },          // % da pior foto: um pouco abaixo dos do guia (0,5, 1 e 3%)
+  mudanca: { media: 1.5, pior: 8 } };                       // o que a etapa da chapa pode mudar na cor
+function diferencaEstouro(a, b) {                           // OKLab x100: brilho, saturacao e matiz (3 vezes mais pesado)
+  const C1 = Math.hypot(a[1], a[2]), C0 = Math.hypot(b[1], b[2]);
+  let dh = Math.atan2(a[2], a[1]) - Math.atan2(b[2], b[1]);
+  dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+  return [100 * (a[0] - b[0]), 100 * (C1 - C0), 300 * 2 * Math.sqrt(C1 * C0) * Math.sin(dh / 2)];
+}
+async function lmEstouro(residuos, p0, iteracoes, passos, pausa) {
+  const custo = (r) => r.reduce((a, b) => a + b * b, 0);
+  let p = p0.slice(), r = residuos(p), c0 = custo(r), lambda = 1e-2;
+  for (let it = 0; it < iteracoes; it++) {
+    const J = p.map((_, k) => { const q = p.slice(); q[k] += passos[k]; const rq = residuos(q); return rq.map((v, j) => (v - r[j]) / passos[k]); });
+    const JtJ = J.map((a) => J.map((b) => a.reduce((s2, v, j) => s2 + v * b[j], 0))), Jtr = J.map((a) => a.reduce((s2, v, j) => s2 + v * r[j], 0));
+    let ok = false;
+    for (let t = 0; t < 10 && !ok; t++) {
+      const d = resolverSistema(JtJ.map((l, a) => l.map((v, b) => v + (a === b ? lambda * (1 + v) : 0))), Jtr.map((v) => -v));
+      const q = p.map((v, k) => v + d[k]), rq = residuos(q), cq = custo(rq);
+      if (cq < c0) { p = q; r = rq; c0 = cq; lambda = Math.max(1e-7, lambda / 3); ok = true; } else lambda *= 4;
+    }
+    if (pausa) await pausa();
+    if (!ok) break;
+  }
+  return p;
+}
+async function tirarEstouro({ fotos = window.AMOSTRAS_ESTOURO, pausa = null, andamento = null } = {}) {
+  if (!fotos) throw new Error("faltam as amostras das fotos de teste (amostras_estouro.js)");
+  A.porCor = { H: A.porCor.H.slice(), mexidas: [], pedidos: {} }; sessao = null;   // as presas nao refazem a matriz no meio
+  const S = SENSOR.map((v) => v / 1024), t = A.intensidade / 100;
+  const look0 = lookDoFiltro(true), pb = A.pb || linhasIguais(look0);
+  const branco = [0, 1, 2].map((r) => look0[3 * r] + look0[3 * r + 1] + look0[3 * r + 2]);
+  const Hinicio = A.porCor.H.slice(), matrizH = matrizPerpendicular(Hinicio, branco);
+  const TOM = ["brilho", "contraste", "pretos", "brancos", "meios", "gamaR", "gamaG", "gamaB"];
+  const DO_SITE = siteAtivo ? ["sBrilho", "sContraste", "sGamaR", "sGamaG", "sGamaB"] : [];
+  const CHAVES = [...TOM, ...DO_SITE], inicio = Object.fromEntries(CHAVES.map((k) => [k, A[k]]));
+  const nH = pb ? 0 : 6, nG = 3, nP = nH + nG + CHAVES.length;   // no P&B a Cor por cor nao muda nada
+  const controles = (p, arredondar) => Object.fromEntries(CHAVES.map((k, i) => {
+    const e = entradas[k], a = Number(e.r.min), b = Number(e.r.max), passo = Number(e.r.step);
+    let v = Math.min(b, Math.max(a, inicio[k] + p[nH + nG + i] * (b - a) / 4));
+    if (arredondar) v = Math.round(v / passo) * passo;
+    return [k, Math.round(v * 100) / 100];
+  }));
+  const H = (p) => (nH ? matrizH(p.slice(0, 6)) : Hinicio).map((v, k) => v * (1 + p[nH + Math.floor(k / 3)]));
+  const hsv255 = (h, s2, v) => { const f = (n) => { const k = (n + h / 60) % 6; return v - v * s2 * Math.max(0, Math.min(k, 4 - k, 1)); }; return [f(5), f(3), f(1)].map((x) => x * 255); };
+  const conjunto = (lista) => ({ lin: lista.map((c) => telaParaLinear(c.map((v) => v / 255))), maxIn: lista.map((c) => Math.max(...c)) });
+  const opt = conjunto([...fotos.rgb, ...Array.from({ length: 32 }, (_, k) => { const g = Math.round(4 + k * 8); return [g, g, g]; }),
+    ...[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].flatMap((h) => [[0.35, 0.55], [0.35, 0.9], [0.75, 0.5], [0.75, 0.85]].map(([s2, v]) => hsv255(h, s2, v)))]);
+  const confere = conjunto(fotos.verificar), POR_FOTO = fotos.verificar.length / 5;
+  const exatas = new Map();
+  const curvasDe = (exato) => {
+    const c = montarFlt(true).curvas;
+    if (!exato) return c;
+    const chave = c.map((l) => l.join()).join("|");
+    if (!exatas.has(chave)) { if (exatas.size > 64) exatas.clear(); exatas.set(chave, X10.segmentosParaLut(X10.lutParaSegmentos(c).seg)); }
+    return exatas.get(chave);
+  };
+  // exato: as 8 retas da camera e os controles nos passos das barras, como o arquivo sai (o ruido muda com 1 ponto)
+  const conta = (p, exato, cj) => {
+    Object.assign(A, controles(p, exato));
+    const curvas = curvasDe(exato), L = mul3(H(p), lookDoFiltro(true)).map((v, k) => IDENT[k] * (1 - t) + v * t);
+    return { L, curvas, sai: cj.lin.map((l) => [0, 1, 2].map((c) => ({ v: L[3 * c] * l[0] + L[3 * c + 1] * l[1] + L[3 * c + 2] * l[2], o: canal(L, curvas, c, l[0], l[1], l[2]) }))) };
+  };
+  const labDe = (k) => k.sai.map((s2) => oklab(s2.map((x) => x.o / 255)));
+  const zero = new Array(nP).fill(0);
+  const antesOpt = conta(zero, true, opt), antesVer = conta(zero, true, confere), lab0 = labDe(antesOpt), lab0Ver = labDe(antesVer);
+  // os canais que ja chapavam no original: chapa nova (que a correcao do claro ou do escuro criaria) pesa sempre
+  const fora = (x) => x.v < -2 || x.v > 1025, chapava = antesOpt.sai.map((s2) => s2.map(fora)), chapavaVer = antesVer.sai.map((s2) => s2.map(fora));
+  // a matriz como a camera grava: a do .flt (x1024, inteira) vezes a do sensor, inteira e no limite
+  const ruido = (k) => X10.medirFiltro({ matriz: mul3(k.L.map((v) => Math.round(v * 1024) / 1024), S).map((v) => Math.max(-4095, Math.min(4095, Math.round(v * 1024)))), lut: k.curvas }, SENSOR).ruido;
+  const ruido0 = ruido(antesOpt);
+  let fe = 0, fc = 0;
+  const residuos = (p, exato) => {
+    const k = conta(p, exato, opt), r = [];
+    k.sai.forEach((s2, i) => {
+      r.push(...diferencaEstouro(oklab(s2.map((x) => x.o / 255)), lab0[i]));                 // a mesma cor de antes
+      let maior = 0;
+      s2.forEach((x, c) => {
+        const excesso = Math.max(0, -2 - x.v) + Math.max(0, x.v - 1025);
+        r.push((chapava[i][c] ? fc : Math.max(fc, fe)) * excesso);                             // chapa (a nova pesa sempre)
+        r.push(opt.maxIn[i] < 245 ? 15 * fe * Math.max(0, x.o - 251) : 0);                 // estoura no claro
+        maior = Math.max(maior, x.o);
+      });
+      r.push(opt.maxIn[i] > 12 ? 15 * fe * Math.max(0, 4 - maior) : 0);                   // engole o escuro
+    });
+    for (const v of mul3(k.L, S)) r.push(300 * Math.max(0, Math.abs(v) - 3.6));           // a matriz da camera
+    // sem mais ruido que o original; o peso sobe junto com a forca, senao o claro e o escuro passam por cima dele
+    r.push(4000 * Math.max(1, fe, fc) * Math.max(0, ruido(k) - Math.max(ruido0, 1) + 0.02));
+    return r;
+  };
+  // a conferencia nos 20.000 pixels: o estouro (a % da pior foto), quanto a cor mudou contra 'ref' e quem ainda falha
+  const conferirEstouro = (p, ref) => {
+    const k = conta(p, true, confere), lab = labDe(k), pior = { claro: 0, escuro: 0, chapa: 0 }, falhas = { ce: [], chapa: [] };
+    for (let f = 0; f < 5; f++) {
+      const n = { claro: 0, escuro: 0, chapa: 0 };
+      for (let i = f * POR_FOTO; i < (f + 1) * POR_FOTO; i++) {
+        const s2 = k.sai[i], maior = Math.max(...s2.map((x) => x.o));
+        if (confere.maxIn[i] < 250 && maior >= 254) { n.claro++; falhas.ce.push(i); }
+        else if (confere.maxIn[i] > 12 && maior <= 3) { n.escuro++; falhas.ce.push(i); }
+        else if (s2.some((x) => x.v < -2 || x.v > 1025)) { n.chapa++; falhas.chapa.push(i); }
+      }
+      for (const q of Object.keys(pior)) pior[q] = Math.max(pior[q], (100 * n[q]) / POR_FOTO);
+    }
+    const dif = lab.map((a, i) => Math.hypot(a[0] - ref[i][0], a[1] - ref[i][1], a[2] - ref[i][2]) * 100).sort((a, b) => a - b);
+    return { pior, media: dif.reduce((a, b) => a + b, 0) / dif.length, p99: dif[Math.floor(0.99 * dif.length)], falhas, lab, ruido: ruido(k) };
+  };
+  const acrescentar = (ids) => {                            // ate 300 dos que ainda falham entram na conta
+    for (let j = 0; j < Math.min(300, ids.length); j++) {
+      const i = ids[Math.floor((j * ids.length) / Math.min(300, ids.length))];
+      opt.lin.push(confere.lin[i]); opt.maxIn.push(confere.maxIn[i]); lab0.push(lab0Ver[i]); chapava.push(chapavaVer[i]);
+    }
+  };
+  const passos = [...new Array(nH).fill(1e-4), ...new Array(nG).fill(1e-3), ...new Array(CHAVES.length).fill(0.03)];
+  const resolver = async (p) => lmEstouro((q) => residuos(q, true), await lmEstouro((q) => residuos(q, false), p, 60, passos, pausa), 25, passos, pausa);
+  const c0 = conferirEstouro(zero, lab0Ver), L = ESTOURO.limites;
+  let p = zero, c = c0, forcaCE = 0, forcaChapa = 0, chapaMantida = false;
+  const contar = (etapa, f) => { if (andamento) andamento(etapa, ESTOURO.forcas.indexOf(f) + 1, ESTOURO.forcas.length); };
+  if (c.pior.claro >= L.claro || c.pior.escuro >= L.escuro) {                           // 1. claro e escuro
+    for (const f of ESTOURO.forcas) {
+      contar(1, f);
+      fe = forcaCE = f;
+      p = await resolver(p);
+      c = conferirEstouro(p, lab0Ver);
+      if (c.pior.claro < L.claro && c.pior.escuro < L.escuro) break;
+      acrescentar(c.falhas.ce);
+    }
+  }
+  const labA = c.lab;
+  fe = forcaCE || 0.4;                                      // a etapa da chapa nao pode criar claro nem escuro
+  if (c.pior.chapa >= L.chapa) {                                                         // 2. chapa, so se a cor muda pouco
+    for (const f of ESTOURO.forcas) {
+      contar(2, f);
+      fc = f;
+      const q = await resolver(p), cq = conferirEstouro(q, labA);
+      // a chapa so sai se a cor muda pouco e se o claro, o escuro e o ruido nao pioram
+      const piora = cq.pior.claro >= L.claro || cq.pior.escuro >= L.escuro || cq.ruido > Math.max(ruido0, 1) + 0.02;
+      if (cq.media > ESTOURO.mudanca.media || cq.p99 > ESTOURO.mudanca.pior || piora) { chapaMantida = true; break; }
+      p = q; c = cq; forcaChapa = f;
+      if (cq.pior.chapa < L.chapa) break;
+      acrescentar(cq.falhas.chapa);
+    }
+  }
+  const fim = conferirEstouro(p, lab0Ver), mudou = forcaCE > 0 || forcaChapa > 0;
+  // os controles nos passos das barras, a Cor por cor nova (as mexidas antigas ja nao valem) e o resto como estava
+  const final = controles(p, true), guardar = { troca: A.troca, pb: A.pb, virar: A.virar, sombraCor: A.sombraCor, luzCor: A.luzCor };
+  const todos = Object.fromEntries(Object.keys(entradas).map((k) => [k, A[k]]));
+  definirControles({ ...todos, ...final });
+  A.troca = guardar.troca; $("troca").value = A.troca;
+  if (guardar.pb) { A.pb = true; $("pb").checked = true; ligarMistura(); }
+  if (guardar.virar !== "nenhum") { A.sombraCor = guardar.sombraCor; A.luzCor = guardar.luzCor; escolherTom(guardar.virar); }
+  A.porCor = { H: H(p), mexidas: [], pedidos: {} }; sessao = null; avisoCor = ""; mostrarCor();
+  aero.base = null; mostrarAero();                          // os controles da aba Aerochrome ja nao descrevem esta Cor por cor
+  agendar();
+  const r1 = (x) => Math.round(x * 100) / 100, rp = (e) => Object.fromEntries(Object.entries(e).map(([k, v]) => [k, r1(v)]));
+  return { mudou, forcaClaroEscuro: forcaCE, forcaChapa, chapaMantida, claroEscuroOk: fim.pior.claro < L.claro && fim.pior.escuro < L.escuro,
+    chapaOk: fim.pior.chapa < L.chapa, estouroAntes: rp(c0.pior), estouro: rp(fim.pior), mudanca: { media: r1(fim.media), pior1: r1(fim.p99) },
+    ruidoAntes: ruido0, controles: Object.entries(final).filter(([k, v]) => Math.abs(v - inicio[k]) > 1e-9).map(([k, v]) => `${k} ${inicio[k]}→${v}`),
+    final, inicio };
+}
+// O estouro nas 5 fotos de teste (os 20.000 pixels da conferencia), com o filtro como a camera grava: a % da pior foto
+// de cada jeito. Medido meio segundo depois da ultima mudanca (leva uns 30 ms).
+const linEstouro = { lin: null, maxIn: null };
+function estouroNasFotos() {
+  const fotos = window.AMOSTRAS_ESTOURO;
+  if (!fotos || !base) return null;
+  if (!linEstouro.lin) { linEstouro.lin = fotos.verificar.map((c) => telaParaLinear(c.map((v) => v / 255))); linEstouro.maxIn = fotos.verificar.map((c) => Math.max(...c)); }
+  const cam = naCamera(montarFlt()), L = cam.L, lut = cam.lut, por = linEstouro.lin.length / 5, pior = { claro: 0, escuro: 0, chapa: 0 };
+  for (let f = 0; f < 5; f++) {
+    const n = { claro: 0, escuro: 0, chapa: 0 };
+    for (let i = f * por; i < (f + 1) * por; i++) {
+      const [r, g, b] = linEstouro.lin[i];
+      let maior = 0, chapa = false;
+      for (let c = 0; c < 3; c++) {
+        const v = L[3 * c] * r + L[3 * c + 1] * g + L[3 * c + 2] * b;
+        if (v < -2 || v > 1025) chapa = true;
+        maior = Math.max(maior, canal(L, lut, c, r, g, b));
+      }
+      if (linEstouro.maxIn[i] < 250 && maior >= 254) n.claro++;
+      else if (linEstouro.maxIn[i] > 12 && maior <= 3) n.escuro++;
+      else if (chapa) n.chapa++;
+    }
+    for (const q of Object.keys(pior)) pior[q] = Math.max(pior[q], (100 * n[q]) / por);
+  }
+  return pior;
+}
+const pct = (x) => `${(Math.round(x * 10) / 10).toString().replace(".", ",")}%`;
+function mostrarEstouro() {
+  if (estouro.rodando) return;
+  if (!$("para-roda").hidden) checarParaRoda();
+  const e = estouroNasFotos(), txt = $("estouro-texto");
+  if (!e) { $("estouro").hidden = true; return; }
+  $("estouro").hidden = false;
+  // os limites do guia (por foto): claro 0,5%, escuro 1%, chapa 3%
+  const partes = [e.claro >= 0.5 && `estoura no claro em ${pct(e.claro)}`, e.escuro >= 1 && `engole o escuro em ${pct(e.escuro)}`, e.chapa >= 3 && `chapa ${pct(e.chapa)}`].filter(Boolean);
+  txt.className = partes.length ? "aviso" : "";
+  txt.textContent = partes.length ? `Nas 5 fotos de teste, ${partes.join(", ")} da pior foto. Para ver onde, use “Onde estoura” na prévia.`
+    : "Nas 5 fotos de teste, não estoura no claro, não engole o escuro e não chapa.";
+  $("estouro-tirar").hidden = !partes.length;
+}
+function travarEstouro(sim) {
+  $("abas").inert = sim; document.querySelector("header.barra").inert = sim; $("ajustes").inert = sim;
+  $("estouro-tirar").hidden = sim || $("estouro-tirar").hidden; $("estouro-parar").hidden = !sim; $("estouro-progresso").hidden = !sim;
+}
+async function tirarEstouroNaPagina() {
+  if (estouro.rodando || !base) return;
+  estouro.antes = guardarEstado(); estouro.rodando = true; estouro.parar = false;
+  $("estouro-voltar").hidden = true; $("estouro-tirar").hidden = true;
+  travarEstouro(true);
+  const txt = $("estouro-texto");
+  txt.className = ""; txt.textContent = "Procurando a menor mudança que tira o estouro… Pode levar de alguns segundos a um minuto e pouco.";
+  $("estouro-progresso").removeAttribute("value");
+  const PARADO = {}, barra = $("estouro-progresso");
+  let ultima = performance.now(), ultimaPrevia = 0;
+  // devolve a vez a pagina a cada ~40 ms (o Parar responde) e redesenha a previa a cada meio segundo (a conta e a mesma
+  // do _scripts/tirar_estouro.js e leva de alguns segundos a um minuto e pouco: desenhar a cada passo a deixaria mais lenta)
+  const pausa = async () => {
+    if (estouro.parar) throw PARADO;
+    if (performance.now() - ultima < 40) return;
+    if (performance.now() - ultimaPrevia > 500) { ultimaPrevia = performance.now(); agendar(); }
+    await new Promise((ok) => setTimeout(ok, 0));
+    ultima = performance.now();
+  };
+  const andamento = (etapa, n, total) => {
+    barra.max = 2 * total; barra.value = (etapa - 1) * total + n - 1;
+    txt.textContent = etapa === 1 ? `Procurando… Etapa 1 de 2, tirar o claro e o escuro: tentativa ${n} de ${total}, cada uma com mais força.`
+      : `Procurando… Etapa 2 de 2, tirar a chapa sem mudar a cor: tentativa ${n} de ${total}.`;
+  };
+  try {
+    const r = await tirarEstouro({ pausa, andamento });
+    const ce = (o) => [`claro ${pct(o.claro)}`, `escuro ${pct(o.escuro)}`, `chapa ${pct(o.chapa)}`].join(", ");
+    txt.className = r.claroEscuroOk ? "ok" : "aviso";
+    txt.textContent = !r.mudou ? "Não precisou mexer: já não estourava nas 5 fotos."
+      : `Pronto: ${ce(r.estouroAntes)} → ${ce(r.estouro)}; a cor mudou ΔE ${String(r.mudanca.media).replace(".", ",")} (até 2 quase não se vê).`
+        + (r.claroEscuroOk ? "" : " Não deu para tirar todo o claro e o escuro sem mudar demais a cor: o que sobrou aparece em “Onde estoura”.")
+        + (r.chapaMantida ? " A chapa ficou: tirá-la mudaria a cor do filtro." : "") + " Os controles mexidos estão nos Ajustes.";
+    $("estouro-voltar").hidden = !r.mudou;
+  } catch (e) {
+    if (e !== PARADO) throw e;
+    voltarEstado(estouro.antes); estouro.antes = null;
+    txt.className = ""; txt.textContent = "Parado: o filtro ficou como estava.";
+  } finally {
+    estouro.rodando = false; travarEstouro(false);
+    agendar();
+  }
+}
+
+// ---------- inicio ----------
+window.criador = { A, tirarEstouro, estouroNasFotos, montarFlt, naCamera, realDasCores, possivelDaCor, usarBase, abrirTextoFlt, definirControles, escolherCor, escolherTom, matrizDasCores, receitaAtual, aplicarReceita, abrirFoto, fltParaBaixar, siteAtual, fazerInfravermelho, get siteAtivo() { return siteAtivo; }, get viragemValendo() { return viragemValendo; }, get base() { return base; } };   // para testes
+ligarMistura();
+usarBase(NEUTRO, "um filtro novo, neutro");
+marcarSalvo();
+$("desfazer-filtro").addEventListener("click", desfazer);
+$("estouro-tirar").addEventListener("click", () => { tirarEstouroNaPagina(); });
+$("estouro-parar").addEventListener("click", () => { estouro.parar = true; });
+$("estouro-voltar").addEventListener("click", () => {
+  if (!estouro.antes) return;
+  voltarEstado(estouro.antes); estouro.antes = null;
+  $("estouro-voltar").hidden = true; $("estouro-texto").textContent = "Voltou ao filtro de antes.";
+});
+document.addEventListener("keydown", (ev) => {             // Ctrl+Z: fora dos campos de texto (la ele desfaz a digitacao)
+  if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey || (ev.key !== "z" && ev.key !== "Z")) return;
+  const alvo = ev.target, texto = alvo && (alvo.isContentEditable || alvo.tagName === "TEXTAREA" || (alvo.tagName === "INPUT" && alvo.type !== "range" && alvo.type !== "checkbox"));
+  if (texto) return;
+  ev.preventDefault(); desfazer();
+});
+registrarPasso();
+voltarUltimaFoto();
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criar filtros da ALT</title>
+<meta name="description" content="Crie filtros .flt para as câmeras ALT 1.0 e 2.1, com a prévia da conta da câmera na sua foto.">
+<link rel="icon" href="icone.png">
+<link rel="stylesheet" href="fonte.css">
+<style>
+  /* A escolha da camera do site do Criar filtros: o mesmo preto e o mesmo azul-gelo da tela OLED e do menu do programa
+     ALT (programa_x10/fonte/menu.html), uma camera por linha. */
+  :root {
+    color-scheme: dark;
+    --fundo: #000000; --painel: #0A0C0D; --linha: #262C30; --tinta: #EDF2F4; --suave: #98A4AA; --tela: #8BE6FF;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--fundo); }
+  body { margin: 0; min-height: 100vh; display: flex; color: var(--tinta); font: 16px/1.5 "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif; }
+  main { width: 100%; max-width: 640px; margin: auto; padding: 48px 20px; }
+  .tela { display: flex; align-items: center; justify-content: center; width: 168px; height: 84px; border-radius: 10px;
+    background: #020608; border: 1px solid var(--linha); margin: 0 auto 22px; }
+  .tela span { color: var(--tela); font-weight: 700; font-size: 30px; letter-spacing: .04em; text-shadow: 0 0 10px rgba(139, 230, 255, .35); }
+  h1 { font-size: 28px; line-height: 1.15; margin: 0 0 6px; text-align: center; }
+  .intro { color: var(--suave); margin: 0 0 28px; text-align: center; }
+  .cameras { display: grid; border-top: 1px solid var(--linha); }
+  .camera { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 18px; align-items: center; padding: 18px 16px;
+    border-bottom: 1px solid var(--linha); color: var(--tinta); text-decoration: none; }
+  .camera .mini { grid-row: span 2; display: flex; align-items: center; justify-content: center; height: 48px; border-radius: 7px;
+    background: #020608; border: 1px solid var(--linha); color: var(--tela); font-weight: 700; font-size: 22px; }
+  .camera strong { font-size: 20px; line-height: 1.25; }
+  .camera span { color: var(--suave); font-size: 15px; }
+  .camera:hover { background: var(--painel); }
+  .camera:hover strong { color: var(--tela); }
+  .camera:focus-visible { outline: 2px solid var(--tela); outline-offset: -2px; border-radius: 6px; }
+  .pe { color: var(--suave); font-size: 14px; margin: 26px 0 0; text-align: center; }
+  .pe + .pe { margin-top: 8px; }
+  @media (max-width: 640px) { main { padding: 32px 16px; } .camera { padding: 16px 0; grid-template-columns: 72px minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <div class="tela" aria-hidden="true"><span>ALT</span></div>
+  <h1>Criar filtros</h1>
+  <p class="intro">Escolha a câmera. O filtro é feito aqui no navegador, com a prévia na sua foto ou nas fotos de teste, e sai como um arquivo .flt.</p>
+  <nav class="cameras" aria-label="Escolher a câmera">
+    <a class="camera" href="criar.html?camera=1.0"><span class="mini" aria-hidden="true">1.0</span>
+      <strong>Câmera 1.0</strong><span>Seis filtros trocados no botão.</span></a>
+    <a class="camera" href="criar.html"><span class="mini" aria-hidden="true">2.1</span>
+      <strong>Câmera 2.1</strong><span>A X10 com a roda de oito filtros.</span></a>
+  </nav>
+  <p class="pe">A sua foto fica só no seu computador: nada é enviado. O .flt entra na câmera pelo Montar o sistema, no programa ALT.</p>
+  <p class="pe">Fotos de teste: Wikimedia Commons, CC0. Fonte: Atkinson Hyperlegible Next (OFL).</p>
+</main>
+</body>
+</html>
